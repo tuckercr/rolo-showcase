@@ -1,5 +1,7 @@
 # Rolo
 
+[![CI](https://github.com/tuckercr/rolo-showcase/actions/workflows/ci.yml/badge.svg)](https://github.com/tuckercr/rolo-showcase/actions/workflows/ci.yml)
+
 A relationship-first CRM built for a fractional CMO consultancy — replacing a
 Coda spreadsheet-CRM with a fast, opinionated web app whose core loop is:
 *capture a contact in under 30 seconds, log every interaction, and never lose
