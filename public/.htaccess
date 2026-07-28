@@ -1,0 +1,13 @@
+# Route everything that isn't a real file through the front controller
+# (shared hosting runs Apache; the PHP dev server needs no equivalent).
+RewriteEngine On
+RewriteBase /
+
+# Apache under CGI/FastCGI strips the Authorization header before PHP sees
+# it — re-export it so Bearer-token auth (/cron/daily-summary) works.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]

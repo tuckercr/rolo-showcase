@@ -1,0 +1,21 @@
+name: Daily summary email
+
+# Fires at 13:00 AND 14:00 UTC so one run is always 9 AM in America/New_York
+# (EDT = UTC-4, EST = UTC-5). The app itself checks local time and whether
+# today's email already went out, so the other run is a no-op.
+on:
+  schedule:
+    - cron: "0 13 * * *"
+    - cron: "0 14 * * *"
+  workflow_dispatch: # manual trigger for testing
+
+jobs:
+  ping:
+    name: Trigger /cron/daily-summary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping the cron endpoint
+        run: |
+          curl -fsS -X POST "https://crm.example.com/cron/daily-summary" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
