@@ -1,13 +1,15 @@
 name: Daily summary email
 
-# Fires at 13:00 AND 14:00 UTC so one run is always 9 AM in America/New_York
-# (EDT = UTC-4, EST = UTC-5). The app itself checks local time and whether
-# today's email already went out, so the other run is a no-op.
+# In the production repo this fires on a schedule at 13:00 AND 14:00 UTC so
+# one run is always 9 AM in America/New_York (EDT = UTC-4, EST = UTC-5).
+# The app itself checks local time and whether today's email already went
+# out, so the other run is a no-op.
+#
+# In this public showcase the schedule is disabled (the example URL isn't a
+# real host) — the workflow is kept to show the approach and can only be
+# triggered manually.
 on:
-  schedule:
-    - cron: "0 13 * * *"
-    - cron: "0 14 * * *"
-  workflow_dispatch: # manual trigger for testing
+  workflow_dispatch:
 
 jobs:
   ping:
