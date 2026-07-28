@@ -13,6 +13,25 @@ HTML — no build pipeline, no SPA, deployable to shared hosting by copying file
 > and examples are genericized. The app itself runs in production for a real
 > two-person consultancy.
 
+## Screenshots
+
+**Dashboard** — the Monday review: overdue and due-this-week follow-ups.
+
+![Dashboard](screenshots/dashboard.png)
+
+**Contact detail** — engagement history, cadence snooze, and the one-line
+"human detail" that keeps relationships personal.
+
+![Contact detail](screenshots/contact-detail.png)
+
+**Contacts** — sortable, searchable, with overdue dates flagged.
+
+![Contacts](screenshots/contacts.png)
+
+**Organizations** — grouped view with per-org contact counts.
+
+![Organizations](screenshots/organizations.png)
+
 ## What it does
 
 - **Contacts & organizations** — quick capture (only a name required), a
