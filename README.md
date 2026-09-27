@@ -9,6 +9,9 @@ track of who to talk to next.*
 
 Built with deliberately boring technology: PHP 8.4, MariaDB, and server-rendered
 HTML — no build pipeline, no SPA, deployable to shared hosting by copying files.
+And one deliberately modern piece: the CRM is also an **MCP server** (Model
+Context Protocol), so AI assistants like Claude and Superhuman connect to it
+directly — with every AI-proposed change gated behind human approval.
 
 > **Note:** this is a public snapshot of a private production repository.
 > Internal docs, deploy scripts, and history are excluded, and the seed data
@@ -17,7 +20,14 @@ HTML — no build pipeline, no SPA, deployable to shared hosting by copying file
 
 ## Screenshots
 
-**Dashboard** — the Monday review: overdue and due-this-week follow-ups.
+**Approvals** — AI agents propose changes over MCP; a human reviews a live
+before/after diff with a rules-engine consequence line, then approves or
+rejects. Nothing an agent does touches the CRM without this step.
+
+![Approvals](screenshots/approvals.png)
+
+**Dashboard** — the Monday review: overdue and due-this-week follow-ups, each
+with its "what needs doing" note.
 
 ![Dashboard](screenshots/dashboard.png)
 
@@ -33,6 +43,34 @@ HTML — no build pipeline, no SPA, deployable to shared hosting by copying file
 **Organizations** — grouped view with per-org contact counts.
 
 ![Organizations](screenshots/organizations.png)
+
+## AI agent integration over MCP
+
+The CRM doubles as a tool server for AI agents (the owner's assistant connects
+from Claude and Superhuman), with one iron rule enforced at the API layer, not
+in agent instructions: **reads are live, writes never touch the CRM directly.**
+
+- **REST API** (`/api/v1/*`): bearer-token auth with separate read-only and
+  read-write tokens (constant-time comparison), cursor pagination, machine plus
+  human-readable errors, a 120 req/min per-token rate limit, and an audit table
+  recording every request.
+- **MCP endpoint** (`/mcp`): the same tools spoken over the Model Context
+  Protocol (streamable HTTP, stateless) so MCP clients plug in directly:
+  13 tools with JSON schemas, read tools marked `readOnlyHint`. The protocol
+  core is a pure, unit-tested class; clients that cannot send an Authorization
+  header (claude.ai custom connectors) may present the token as a URL secret,
+  which the audit trail redacts.
+- **Approval-gated writes**: every write proposes; a human approves. Proposals
+  are validated immediately (bad payloads never reach the queue), deduped with
+  idempotency keys, and reviewed on an Approvals page that renders each change
+  in plain English: a live before/after diff against current data, and a
+  consequence line ("reschedules the next follow-up to …") computed with the
+  same rules engine that will apply it. Approved changes are attributed to the
+  approver; the proposing token stays on the audit trail.
+- **Schedule-safe by design**: agent-logged activities default to NOT counting
+  as a personal touch, so bulk campaign logging can't clear the human
+  follow-up queue, and a backdated touch approved out of order records history
+  without dragging the schedule backward.
 
 ## What it does
 
@@ -70,34 +108,6 @@ HTML — no build pipeline, no SPA, deployable to shared hosting by copying file
 - **Two-person collaboration** — `created_by` / `updated_by` trails are stored
   *and shown* ("added by Jessica · last updated by Colin"), so both users can
   always see who touched what.
-
-## AI agent integration
-
-The CRM doubles as a tool server for AI agents (the owner's assistant connects
-from Claude and Superhuman), with one iron rule enforced at the API layer, not
-in agent instructions: **reads are live, writes never touch the CRM directly.**
-
-- **REST API** (`/api/v1/*`): bearer-token auth with separate read-only and
-  read-write tokens (constant-time comparison), cursor pagination, machine plus
-  human-readable errors, a 120 req/min per-token rate limit, and an audit table
-  recording every request.
-- **MCP endpoint** (`/mcp`): the same tools spoken over the Model Context
-  Protocol (streamable HTTP, stateless) so MCP clients plug in directly:
-  13 tools with JSON schemas, read tools marked `readOnlyHint`. The protocol
-  core is a pure, unit-tested class; clients that cannot send an Authorization
-  header (claude.ai custom connectors) may present the token as a URL secret,
-  which the audit trail redacts.
-- **Approval-gated writes**: every write proposes; a human approves. Proposals
-  are validated immediately (bad payloads never reach the queue), deduped with
-  idempotency keys, and reviewed on an Approvals page that renders each change
-  in plain English: a live before/after diff against current data, and a
-  consequence line ("reschedules the next follow-up to …") computed with the
-  same rules engine that will apply it. Approved changes are attributed to the
-  approver; the proposing token stays on the audit trail.
-- **Schedule-safe by design**: agent-logged activities default to NOT counting
-  as a personal touch, so bulk campaign logging can't clear the human
-  follow-up queue, and a backdated touch approved out of order records history
-  without dragging the schedule backward.
 
 ## Architecture
 
