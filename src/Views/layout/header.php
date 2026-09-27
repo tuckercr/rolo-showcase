@@ -26,7 +26,14 @@ $headTitle = $pageTitle . ' — Rolo';
         <a href="/" class="text-sm text-brand-inksoft hover:text-brand-red">Dashboard</a>
         <a href="/contacts" class="text-sm text-brand-inksoft hover:text-brand-red">Contacts</a>
         <a href="/organizations" class="text-sm text-brand-inksoft hover:text-brand-red">Organizations</a>
+        <a href="/attachments" class="text-sm text-brand-inksoft hover:text-brand-red">Files</a>
         <a href="/settings" class="text-sm text-brand-inksoft hover:text-brand-red">Settings</a>
+        <?php if (($pendingProposals ?? 0) > 0) : ?>
+            <a href="/proposals"
+               class="text-sm text-brand-red font-medium hover:underline">
+                Approvals (<?= (int) $pendingProposals ?>)
+            </a>
+        <?php endif ?>
         <a href="/contacts/new"
            class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-1 rounded">
             + Add contact

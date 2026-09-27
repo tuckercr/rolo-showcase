@@ -7,12 +7,20 @@ use App\Support\View;
 
 /**
  * @var array<string, mixed> $contact
+ * @var list<string> $contactTags
  * @var list<array<string, mixed>> $activities
  * @var array<string, string> $activityTypes loggable types (form select)
  * @var array<string, string> $historyTypes display labels incl. system entries
  * @var string $today
  * @var bool $activityError
+ * @var bool $attachmentError
+ * @var bool $storageError
+ * @var array<int, list<array<string, mixed>>> $attachmentsByActivity keyed by activity id
+ * @var string $allowedTypesLabel
  * @var array<int, string> $snoozeOptions days => label
+ * @var int|null $queueIndex 0-based position in the follow-up queue, null if not queued
+ * @var int $queueTotal
+ * @var array<string, mixed>|null $queueNext the next queued contact, if any
  */
 
 include __DIR__ . '/../layout/header.php';
@@ -34,6 +42,25 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
         </p>
     </div>
     <div class="flex items-center gap-2">
+        <button type="button" id="back-nav" onclick="history.back()" hidden
+                title="Back"
+                class="text-sm text-brand-inksoft border border-brand-sand hover:bg-brand-cream2
+                       px-3 py-2 rounded-lg">&larr;</button>
+        <?php if ($queueIndex !== null) : ?>
+            <span class="text-xs text-brand-muted">
+                Queue <?= $queueIndex + 1 ?> of <?= $queueTotal ?>
+            </span>
+            <?php if ($queueNext !== null) : ?>
+                <a href="/contacts/<?= (int) $queueNext['id'] ?>"
+                   title="Next in queue: <?= View::e((string) $queueNext['name']) ?>"
+                   class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-2
+                          rounded-lg">&rarr;</a>
+            <?php else : ?>
+                <a href="/" title="Queue done — back to dashboard"
+                   class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-2
+                          rounded-lg">&rarr;</a>
+            <?php endif ?>
+        <?php endif ?>
         <a href="/contacts/<?= (int) $contact['id'] ?>/edit"
            class="text-sm bg-brand-ink hover:bg-brand-red text-white px-4 py-2 rounded-lg">Edit</a>
         <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/trash"
@@ -52,6 +79,18 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
 <?php if (($contact['human_detail'] ?? null) !== null) : ?>
     <p class="mt-4 bg-brand-cream2 border border-brand-sand text-brand-inksoft text-sm rounded-lg px-4 py-2">
         <?= View::e((string) $contact['human_detail']) ?>
+    </p>
+<?php endif ?>
+
+<?php if ($contactTags !== []) : ?>
+    <p class="mt-3">
+        <?php foreach ($contactTags as $tagName) : ?>
+            <a href="/contacts?tag=<?= View::e(rawurlencode($tagName)) ?>"
+               class="inline-block mr-1.5 mb-1 text-xs bg-brand-cream2 border border-brand-sand
+                      text-brand-inksoft rounded-full px-2.5 py-0.5 hover:border-brand-red">
+                <?= View::e($tagName) ?>
+            </a>
+        <?php endforeach ?>
     </p>
 <?php endif ?>
 
@@ -146,7 +185,21 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                     Couldn&rsquo;t save that — check the type and dates and try again.
                 </p>
             <?php endif ?>
-            <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/activities" class="mt-3">
+            <?php if ($attachmentError) : ?>
+                <p class="mt-2 text-xs text-brand-red">
+                    Attachment refused — up to 5 files, 10&nbsp;MB each
+                    (<?= View::e($allowedTypesLabel) ?>). Nothing was saved.
+                </p>
+            <?php endif ?>
+            <?php if ($storageError) : ?>
+                <p class="mt-2 text-xs text-brand-red">
+                    Couldn&rsquo;t save your file — the interaction was logged, but the
+                    server had a storage problem. Try attaching it again from the
+                    interaction&rsquo;s Edit link below.
+                </p>
+            <?php endif ?>
+            <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/activities"
+                  enctype="multipart/form-data" class="mt-3">
                 <?= Csrf::field() ?>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -164,16 +217,31 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                     </div>
                     <div class="sm:col-span-2">
                         <label class="text-sm font-medium text-brand-inksoft">What happened?</label>
-                        <textarea name="summary" rows="2" class="<?= $inputClass ?>"
+                        <textarea name="summary" rows="4" class="<?= $inputClass ?>"
                                   placeholder="Quick summary of the interaction…"></textarea>
                     </div>
                     <div class="sm:col-span-2 flex items-center gap-4">
                         <label class="text-sm text-brand-inksoft flex items-center gap-2">
-                            <input type="checkbox" name="follow_up_needed" value="1" class="rounded">
+                            <input type="checkbox" name="follow_up_needed" value="1" class="rounded"
+                                   onchange="document.getElementById('fu-note-log')
+                                       .classList.toggle('hidden', !this.checked)">
                             Follow-up needed
                         </label>
                         <input type="date" name="follow_up_date" class="border border-brand-sand
                                rounded-lg px-3 py-1.5 text-sm" title="Follow-up date (optional)">
+                    </div>
+                    <div id="fu-note-log" class="sm:col-span-2 hidden">
+                        <input type="text" name="follow_up_note" maxlength="255"
+                               class="<?= $inputClass ?>"
+                               placeholder="What needs doing? e.g. Send the proposal draft">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="text-sm font-medium text-brand-inksoft">Attach files</label>
+                        <input type="file" name="attachments[]" multiple
+                               class="mt-1 block w-full text-sm text-brand-muted">
+                        <p class="mt-1 text-xs text-brand-muted">
+                            Up to 5 files, 10&nbsp;MB each (<?= View::e($allowedTypesLabel) ?>).
+                        </p>
                     </div>
                 </div>
                 <button type="submit"
@@ -219,11 +287,27 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                             <?php if ((string) ($activity['summary'] ?? '') !== '') : ?>
                                 <p class="mt-1 text-brand-inksoft"><?= View::e((string) $activity['summary']) ?></p>
                             <?php endif ?>
+                            <?php $activityAttachments = $attachmentsByActivity[(int) $activity['id']] ?? []; ?>
+                            <?php if ($activityAttachments !== []) : ?>
+                                <p class="mt-1.5">
+                                    <?php foreach ($activityAttachments as $att) : ?>
+                                        <a href="/attachments/<?= (int) $att['id'] ?>"
+                                           class="inline-block mr-3 text-xs text-brand-red hover:underline">
+                                            &#128206; <?= View::e((string) $att['original_name']) ?>
+                                        </a>
+                                    <?php endforeach ?>
+                                </p>
+                            <?php endif ?>
                             <?php if ((int) $activity['follow_up_needed'] === 1) : ?>
                                 <p class="mt-1 text-xs text-brand-red">
                                     Follow-up needed
                                     <?php if (($activity['follow_up_date'] ?? null) !== null) : ?>
                                         by <?= View::e((string) $activity['follow_up_date']) ?>
+                                    <?php endif ?>
+                                    <?php if (($activity['follow_up_note'] ?? '') !== '') : ?>
+                                        <span class="text-brand-inksoft">
+                                            &middot; <?= View::e((string) $activity['follow_up_note']) ?>
+                                        </span>
                                     <?php endif ?>
                                 </p>
                             <?php endif ?>
@@ -236,6 +320,12 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
 </div>
 
 <script>
+    // Show the back arrow only when there's browser history to go back to;
+    // it behaves exactly like the browser Back button.
+    if (history.length > 1) {
+        document.getElementById('back-nav').hidden = false;
+    }
+
     // Submit the snooze in place. A normal POST+redirect adds a second
     // history entry for this page, so Back had to be pressed twice to reach
     // the dashboard. fetch + reload keeps history at one entry; if JS is

@@ -33,6 +33,11 @@ final class ContactModel
 
     private const BASE_SELECT = '
         SELECT c.*,
+               (SELECT IF(a.follow_up_needed = 1, a.follow_up_note, NULL)
+                FROM activities a
+                WHERE a.contact_id = c.id AND a.activity_type != \'snoozed\'
+                ORDER BY a.activity_date DESC, a.id DESC
+                LIMIT 1) AS follow_up_note,
                o.name AS organization_name,
                cu.name AS created_by_name,
                uu.name AS updated_by_name
@@ -56,10 +61,18 @@ final class ContactModel
         ?int $organizationId = null,
         string $sort = 'name',
         string $dir = 'asc',
+        string $tag = '',
     ): array {
         $sql = self::BASE_SELECT;
         $where = [];
         $params = [];
+
+        if ($tag !== '') {
+            $where[] = 'EXISTS (SELECT 1 FROM contact_tags ct
+                JOIN tags t ON t.id = ct.tag_id
+                WHERE ct.contact_id = c.id AND t.name = :tag)';
+            $params['tag'] = $tag;
+        }
 
         if ($query !== '') {
             // Two placeholders for the same value: native prepares (emulation
@@ -103,9 +116,14 @@ final class ContactModel
      * view from docs/SCHEMA.md. $today is "today" in APP_TIMEZONE, computed
      * by the caller, so evening UTC skew doesn't shift the list.
      *
+     * The default horizon is 6 = "this week" as 7 calendar days INCLUDING
+     * today. It was 7, which made a one-week snooze (today + 7) land exactly
+     * on the boundary and stay on the dashboard — Jessica's snooze-looks-
+     * buggy report (2026-07-22). Snoozing a week now clears the list.
+     *
      * @return list<array<string, mixed>>
      */
-    public function dueBy(string $today, int $horizonDays = 7): array
+    public function dueBy(string $today, int $horizonDays = 6): array
     {
         $stmt = $this->db->pdo()->prepare(
             self::BASE_SELECT . '
@@ -133,6 +151,55 @@ final class ContactModel
         $row = $stmt->fetch();
 
         return $row === false ? null : $row;
+    }
+
+    /**
+     * Cursor-paginated list for the agent API. $afterId is the decoded
+     * cursor; rows come back in id order so pagination is stable.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function apiList(
+        string $query,
+        string $stage,
+        string $updatedSince,
+        int $afterId,
+        int $limit,
+        string $tag = '',
+    ): array {
+        $sql = self::BASE_SELECT;
+        $where = ['c.deleted_at IS NULL', 'c.id > :after_id'];
+        $params = ['after_id' => $afterId];
+
+        if ($tag !== '') {
+            $where[] = 'EXISTS (SELECT 1 FROM contact_tags ct
+                JOIN tags t ON t.id = ct.tag_id
+                WHERE ct.contact_id = c.id AND t.name = :tag)';
+            $params['tag'] = $tag;
+        }
+
+        if ($query !== '') {
+            $where[] = '(c.name LIKE :query_name OR o.name LIKE :query_org)';
+            $params['query_name'] = '%' . $query . '%';
+            $params['query_org'] = '%' . $query . '%';
+        }
+
+        if ($stage !== '') {
+            $where[] = 'c.relationship_status = :stage';
+            $params['stage'] = $stage;
+        }
+
+        if ($updatedSince !== '') {
+            $where[] = 'c.updated_at >= :updated_since';
+            $params['updated_since'] = $updatedSince;
+        }
+
+        $sql .= ' WHERE ' . implode(' AND ', $where) . ' ORDER BY c.id LIMIT ' . $limit;
+
+        $stmt = $this->db->pdo()->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll();
     }
 
     /**
@@ -256,7 +323,7 @@ final class ContactModel
      * Called after an activity is logged: advance last touch and store the
      * recalculated next touch.
      */
-    public function recordTouch(int $id, string $lastTouchDate, ?string $nextTouchDate, int $userId): void
+    public function recordTouch(int $id, ?string $lastTouchDate, ?string $nextTouchDate, int $userId): void
     {
         $stmt = $this->db->pdo()->prepare(
             'UPDATE contacts SET

@@ -26,6 +26,7 @@ abstract class Controller
     {
         return View::render($template, $data + [
             'currentUser' => $this->auth->user(),
+            'pendingProposals' => (new \App\Models\ProposalModel($this->db))->pendingCount(),
         ]);
     }
 

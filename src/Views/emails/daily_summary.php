@@ -31,6 +31,10 @@ $contactRows = static function (array $contacts) use ($appUrl, $rowStyle): strin
             . ' style="color:#C1272D;font-weight:bold;text-decoration:none;">'
             . View::e((string) $contact['name']) . '</a>'
             . ($org !== '' ? ' <span style="color:#8A857C;">· ' . View::e($org) . '</span>' : '')
+            . (($contact['follow_up_note'] ?? '') !== ''
+                ? '<br><span style="color:#5A5650;font-size:12px;">'
+                    . View::e((string) $contact['follow_up_note']) . '</span>'
+                : '')
             . '</td>'
             . '<td style="' . $rowStyle . '">' . View::e((string) $contact['relationship_status']) . '</td>'
             . '<td style="' . $rowStyle . 'white-space:nowrap;">'
@@ -110,6 +114,12 @@ $contactRows = static function (array $contacts) use ($appUrl, $rowStyle): strin
                         <?php if ((string) ($activity['summary'] ?? '') !== '') : ?>
                             <br><span style="color:#5A5650;">
                                 <?= View::e((string) $activity['summary']) ?>
+                            </span>
+                        <?php endif ?>
+                        <?php $attCount = (int) ($activity['attachment_count'] ?? 0); ?>
+                        <?php if ($attCount > 0) : ?>
+                            <br><span style="color:#8A857C;font-size:12px;">
+                                &#128206; <?= $attCount ?> attachment<?= $attCount === 1 ? '' : 's' ?>
                             </span>
                         <?php endif ?>
                     </td></tr>

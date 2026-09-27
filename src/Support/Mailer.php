@@ -10,8 +10,8 @@ use RuntimeException;
 
 /**
  * Thin wrapper over PHPMailer. Uses SMTP when SMTP_HOST is configured,
- * otherwise PHP's mail() — which works on typical shared hosting for domains
- * hosted on the same account.
+ * otherwise PHP's mail() — which works on the shared host for domains
+ * hosted there.
  */
 final class Mailer
 {

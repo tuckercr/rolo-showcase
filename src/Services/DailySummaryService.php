@@ -55,7 +55,7 @@ final class DailySummaryService
         $data = $this->gather($now);
         $html = View::render('emails/daily_summary', $data);
         $subject = sprintf(
-            'Rolo — %d overdue, %d due today (%s)',
+            'Rolo: %d overdue, %d due today (%s)',
             count($data['overdue']),
             count($data['dueToday']),
             $now->format('D M j'),

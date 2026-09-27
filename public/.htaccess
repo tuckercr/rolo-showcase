@@ -1,5 +1,5 @@
 # Route everything that isn't a real file through the front controller
-# (shared hosting runs Apache; the PHP dev server needs no equivalent).
+# (the shared host runs Apache; the PHP dev server needs no equivalent).
 RewriteEngine On
 RewriteBase /
 

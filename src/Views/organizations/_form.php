@@ -58,6 +58,13 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
         </div>
 
         <div class="sm:col-span-2">
+            <label class="text-sm font-medium text-brand-inksoft">LinkedIn URL</label>
+            <input type="url" name="linkedin_url" value="<?= $value('linkedin_url') ?>"
+                   placeholder="https://www.linkedin.com/company/…" class="<?= $inputClass ?>">
+            <?= $fieldError('linkedin_url') ?>
+        </div>
+
+        <div class="sm:col-span-2">
             <label class="text-sm font-medium text-brand-inksoft">Notes</label>
             <textarea name="notes" rows="4" class="<?= $inputClass ?>"><?= $value('notes') ?></textarea>
         </div>

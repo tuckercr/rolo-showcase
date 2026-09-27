@@ -39,6 +39,8 @@ final readonly class Config
         public string $smtpPassword = '',
         public string $mailFrom = '',
         public array $summaryRecipients = [],
+        public string $apiTokenRead = '',
+        public string $apiTokenWrite = '',
     ) {
     }
 
@@ -77,6 +79,8 @@ final readonly class Config
             smtpPassword: self::optionalString($env, 'SMTP_PASSWORD'),
             mailFrom: self::optionalString($env, 'MAIL_FROM'),
             summaryRecipients: self::parseEmailList(self::optionalString($env, 'SUMMARY_RECIPIENTS')),
+            apiTokenRead: self::optionalString($env, 'API_TOKEN_READ'),
+            apiTokenWrite: self::optionalString($env, 'API_TOKEN_WRITE'),
         );
     }
 

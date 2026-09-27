@@ -16,6 +16,7 @@ final class ReminderServiceTest extends TestCase
     private function service(): ReminderService
     {
         return new ReminderService([
+            'Leads' => ['rule_type' => 'fixed_days', 'value_days' => 0],
             'New/Captured' => ['rule_type' => 'fixed_days', 'value_days' => 3],
             'Researching' => ['rule_type' => 'fixed_days', 'value_days' => 7],
             'Relationship Building' => ['rule_type' => 'cadence_from_last_touch', 'value_days' => 30],
@@ -121,6 +122,15 @@ final class ReminderServiceTest extends TestCase
         $next = $this->service()->nextTouchDate('Opportunity Identified', $this->date('2026-07-08'));
 
         $this->assertSame('2026-07-13', $next?->format('Y-m-d'));
+    }
+
+    public function testZeroDayCadenceIsDueSameDay(): void
+    {
+        // The Leads stage (2026-09-23): fixed_days 0 = follow up the same
+        // day the contact enters the stage.
+        $next = $this->service()->nextTouchDate('Leads', $this->date('2026-09-23'));
+
+        $this->assertSame('2026-09-23', $next?->format('Y-m-d'));
     }
 
     public function testDormantLongCadence(): void

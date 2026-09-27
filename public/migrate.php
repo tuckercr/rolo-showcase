@@ -3,14 +3,15 @@
 /**
  * Run pending database migrations over HTTP.
  *
- * Why this exists: on shared hosting the database is often unreachable from
- * outside the host's network, and the deploy account may have no shell — so
- * bin/migrate.php can't be run remotely. This endpoint runs the same
- * Migrator on the server itself, gated by a long random token
- * (MIGRATE_TOKEN in the server's .env — never committed, never the same as
- * any other secret in this app).
+ * Why this exists: the shared host's MariaDB server has
+ * no public DNS record — confirmed via `dig`/Google's public DNS returning
+ * NXDOMAIN — so it's only reachable from inside the hosting provider's network. The
+ * SFTP deploy account has no shell, so bin/migrate.php can never be run
+ * remotely. This endpoint runs the same Migrator on the server itself,
+ * gated by a long random token (MIGRATE_TOKEN in the server's .env — never
+ * committed, never the same as any other secret in this app).
  *
- * Usage: https://your-app.example.com/migrate.php?token=...
+ * Usage: https://crm.example.com/migrate.php?token=...
  *
  * Safe to hit repeatedly — migrations are forward-only and tracked in the
  * `migrations` table (see src/Support/Migrator.php); anything already

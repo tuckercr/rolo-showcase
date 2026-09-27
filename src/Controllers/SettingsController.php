@@ -47,8 +47,9 @@ final class SettingsController extends Controller
 
             $days = filter_var((string) ($postedDays[$stageId] ?? ''), FILTER_VALIDATE_INT);
 
-            if ($days === false || $days < 1 || $days > self::MAX_DAYS) {
-                $errors[$stageId] = sprintf('Days must be between 1 and %d.', self::MAX_DAYS);
+            // 0 is allowed: a same-day follow-up (the Leads stage default).
+            if ($days === false || $days < 0 || $days > self::MAX_DAYS) {
+                $errors[$stageId] = sprintf('Days must be between 0 and %d.', self::MAX_DAYS);
                 continue;
             }
 

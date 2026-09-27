@@ -13,7 +13,16 @@ use function FastRoute\simpleDispatcher;
 
 $config = require dirname(__DIR__) . '/config/bootstrap.php';
 
-Session::start($config);
+$httpMethod = $_SERVER['REQUEST_METHOD'];
+$uri = rawurldecode((string) parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
+
+// The agent API (REST and MCP) is stateless: bearer-token auth inside its
+// controllers, no session cookie, JSON errors instead of HTML pages.
+$isApi = str_starts_with($uri, '/api/') || $uri === '/mcp' || str_starts_with($uri, '/mcp/');
+
+if (!$isApi) {
+    Session::start($config);
+}
 
 $database = new Database($config);
 $auth = new Auth(new UserModel($database));
@@ -28,27 +37,41 @@ $publicRoutes = [
     '/cron/daily-summary', // guarded by CRON_SECRET, not a session
 ];
 
-$dispatcher = simpleDispatcher(require dirname(__DIR__) . '/config/routes.php');
+$jsonError = static function (int $status, string $code, string $message): void {
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => ['code' => $code, 'message' => $message]]);
+};
 
-$httpMethod = $_SERVER['REQUEST_METHOD'];
-$uri = rawurldecode((string) parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
+$dispatcher = simpleDispatcher(require dirname(__DIR__) . '/config/routes.php');
 
 $routeInfo = $dispatcher->dispatch($httpMethod, $uri);
 
 switch ($routeInfo[0]) {
     case Dispatcher::NOT_FOUND:
+        if ($isApi) {
+            $jsonError(404, 'not_found', 'Unknown API endpoint.');
+            break;
+        }
+
         http_response_code(404);
         echo View::render('errors/404');
         break;
 
     case Dispatcher::METHOD_NOT_ALLOWED:
         header('Allow: ' . implode(', ', $routeInfo[1]));
+
+        if ($isApi) {
+            $jsonError(405, 'method_not_allowed', 'Method not allowed for this endpoint.');
+            break;
+        }
+
         http_response_code(405);
         echo View::render('errors/404');
         break;
 
     case Dispatcher::FOUND:
-        if (!in_array($uri, $publicRoutes, true) && !$auth->check()) {
+        if (!$isApi && !in_array($uri, $publicRoutes, true) && !$auth->check()) {
             header('Location: /login', true, 302);
             break;
         }

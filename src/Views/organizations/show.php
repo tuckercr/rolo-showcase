@@ -26,6 +26,11 @@ include __DIR__ . '/../layout/header.php';
                     <?= View::e((string) $organization['website']) ?>
                 </a>
             <?php endif ?>
+            <?php if (($organization['linkedin_url'] ?? null) !== null) : ?>
+                &middot;
+                <a href="<?= View::e((string) $organization['linkedin_url']) ?>" target="_blank"
+                   rel="noopener" class="text-brand-red hover:underline">LinkedIn</a>
+            <?php endif ?>
         </p>
     </div>
     <a href="/organizations/<?= (int) $organization['id'] ?>/edit"

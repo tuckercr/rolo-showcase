@@ -144,10 +144,16 @@ final class OrganizationController extends Controller
             $errors['website'] = 'Website must be a full URL (https://…).';
         }
 
+        $linkedin = trim((string) ($input['linkedin_url'] ?? ''));
+        if ($linkedin !== '' && filter_var($linkedin, FILTER_VALIDATE_URL) === false) {
+            $errors['linkedin_url'] = 'LinkedIn URL must be a full URL (https://…).';
+        }
+
         $data = [
             'name' => $name,
             'org_type' => $orgType,
             'website' => $website === '' ? null : $website,
+            'linkedin_url' => $linkedin === '' ? null : $linkedin,
             'notes' => trim((string) ($input['notes'] ?? '')) ?: null,
         ];
 

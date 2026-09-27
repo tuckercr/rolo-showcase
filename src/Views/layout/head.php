@@ -5,8 +5,8 @@ declare(strict_types=1);
 use App\Support\View;
 
 /**
- * Shared <head> contents — Data Story Strategy brand palette + fonts,
- * sampled from the client's public site:
+ * Shared <head> contents — client brand palette + fonts,
+ * sampled from the client's marketing site (2026-07-13):
  *   red #C1272D (CTAs), creams #F3EFE7 / #EDE7DC (section backgrounds),
  *   ink #111 / warm muted #5A5650, Cormorant Garamond headings, Inter body.
  * Deliberately no near-black page backgrounds (Colin's call) — the creams

@@ -20,6 +20,7 @@ final class ReminderRuleModel
      * A stage absent here (Closed / Not a Fit) gets no rule = no reminder.
      */
     public const DEFAULTS = [
+        'Leads' => ['rule_type' => 'fixed_days', 'value_days' => 0],
         'New/Captured' => ['rule_type' => 'fixed_days', 'value_days' => 3],
         'Researching' => ['rule_type' => 'fixed_days', 'value_days' => 7],
         'Intro Sent' => ['rule_type' => 'fixed_days', 'value_days' => 7],

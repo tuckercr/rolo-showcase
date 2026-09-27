@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\ActivityModel;
+use App\Models\AttachmentModel;
 use App\Models\ContactModel;
 use App\Models\OrganizationModel;
 use App\Models\ReminderRuleModel;
 use App\Models\StageModel;
+use App\Models\TagModel;
+use App\Services\AttachmentService;
 use App\Services\ReminderService;
 use App\Support\View;
 use DateTimeImmutable;
@@ -19,6 +22,7 @@ final class ContactController extends Controller
     {
         $query = trim((string) ($_GET['q'] ?? ''));
         $status = trim((string) ($_GET['status'] ?? ''));
+        $tag = trim((string) ($_GET['tag'] ?? ''));
 
         $sort = (string) ($_GET['sort'] ?? 'name');
         if (!array_key_exists($sort, ContactModel::SORTS)) {
@@ -30,10 +34,12 @@ final class ContactController extends Controller
 
         return $this->render('contacts/index', [
             'pageTitle' => 'Contacts',
-            'contacts' => $contacts->search($query, $status, null, $sort, $dir),
+            'contacts' => $contacts->search($query, $status, null, $sort, $dir, $tag),
             'stages' => (new StageModel($this->db))->allOrdered(),
+            'allTags' => (new TagModel($this->db))->allWithCounts(),
             'query' => $query,
             'status' => $status,
+            'tag' => $tag,
             'sort' => $sort,
             'dir' => $dir,
             'today' => $this->todayLocal()->format('Y-m-d'),
@@ -138,21 +144,43 @@ final class ContactController extends Controller
 
     public function show(array $vars): string
     {
-        $contact = (new ContactModel($this->db))->find((int) $vars['id']);
+        $contacts = new ContactModel($this->db);
+        $contact = $contacts->find((int) $vars['id']);
 
         if ($contact === null) {
             http_response_code(404);
             return View::render('errors/404');
         }
 
+        // The follow-up queue = the dashboard list (overdue + due this week,
+        // soonest first). When this contact is in it, offer "next in queue"
+        // so Jessica can work through follow-ups without bouncing back.
+        $queue = $contacts->dueBy($this->todayLocal()->format('Y-m-d'));
+        $queueIds = array_map(static fn(array $c): int => (int) $c['id'], $queue);
+        $queueIndex = array_search((int) $contact['id'], $queueIds, true);
+
+        $queueNext = null;
+        if ($queueIndex !== false && $queueIndex + 1 < count($queue)) {
+            $queueNext = $queue[$queueIndex + 1];
+        }
+
         return $this->render('contacts/show', [
+            'queueIndex' => $queueIndex === false ? null : $queueIndex,
+            'queueTotal' => count($queue),
+            'queueNext' => $queueNext,
             'pageTitle' => (string) $contact['name'],
             'contact' => $contact,
+            'contactTags' => (new TagModel($this->db))->namesForContact((int) $contact['id']),
             'activities' => (new ActivityModel($this->db))->forContact((int) $contact['id']),
             'activityTypes' => ActivityModel::TYPES,
             'historyTypes' => ActivityModel::DISPLAY_TYPES,
             'today' => $this->todayLocal()->format('Y-m-d'),
             'activityError' => ($_GET['error'] ?? '') === 'activity',
+            'attachmentError' => ($_GET['error'] ?? '') === 'attachment',
+            'storageError' => ($_GET['error'] ?? '') === 'storage',
+            'attachmentsByActivity' => (new AttachmentModel($this->db))
+                ->forContactByActivity((int) $contact['id']),
+            'allowedTypesLabel' => AttachmentService::allowedExtensionsLabel(),
             'snoozeOptions' => self::SNOOZE_OPTIONS,
         ]);
     }
@@ -196,6 +224,7 @@ final class ContactController extends Controller
         );
 
         $id = (new ContactModel($this->db))->create($data, $this->auth->id());
+        (new TagModel($this->db))->syncForContact($id, $data['tags']);
 
         return $this->redirect('/contacts/' . $id);
     }
@@ -216,7 +245,9 @@ final class ContactController extends Controller
             'organizations' => (new OrganizationModel($this->db))->allOrdered(),
             'relationshipTypes' => ContactModel::RELATIONSHIP_TYPES,
             'errors' => [],
-            'old' => $contact,
+            'old' => $contact + [
+                'tags' => implode(', ', (new TagModel($this->db))->namesForContact((int) $contact['id'])),
+            ],
         ]);
     }
 
@@ -268,6 +299,7 @@ final class ContactController extends Controller
         }
 
         $contacts->update((int) $contact['id'], $data, $this->auth->id());
+        (new TagModel($this->db))->syncForContact((int) $contact['id'], $data['tags']);
 
         return $this->redirect('/contacts/' . (int) $contact['id']);
     }
@@ -344,8 +376,18 @@ final class ContactController extends Controller
             }
         }
 
+        $tags = TagModel::parseList((string) ($input['tags'] ?? ''));
+
+        foreach ($tags as $tagName) {
+            if (mb_strlen($tagName) > TagModel::MAX_LENGTH) {
+                $errors['tags'] = sprintf('Tags can be at most %d characters each.', TagModel::MAX_LENGTH);
+                break;
+            }
+        }
+
         $data = [
             'name' => $name,
+            'tags' => $tags,
             'organization_id' => $organizationId,
             'title' => trim((string) ($input['title'] ?? '')) ?: null,
             'relationship_status' => $status,

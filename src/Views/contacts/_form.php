@@ -126,6 +126,17 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
             <input type="text" name="human_detail" value="<?= $value('human_detail') ?>"
                    placeholder="One memorable line about this person…" class="<?= $inputClass ?>">
         </div>
+
+        <div class="sm:col-span-2">
+            <label class="text-sm font-medium text-brand-inksoft">Tags</label>
+            <input type="text" name="tags" value="<?= $value('tags') ?>"
+                   placeholder="Comma-separated, e.g. Nashville, Academic Innovation"
+                   class="<?= $inputClass ?>">
+            <?= $fieldError('tags') ?>
+            <p class="mt-1 text-xs text-brand-muted">
+                Freeform context labels. New tags are created automatically.
+            </p>
+        </div>
     </div>
 
     <div class="mt-6 flex items-center gap-3">

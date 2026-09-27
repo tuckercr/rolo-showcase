@@ -7,8 +7,10 @@ use App\Support\View;
 /**
  * @var list<array<string, mixed>> $contacts
  * @var list<array<string, mixed>> $stages
+ * @var list<array<string, mixed>> $allTags name + contact_count
  * @var string $query
  * @var string $status
+ * @var string $tag
  * @var string $sort current sort key (whitelisted by the controller)
  * @var string $dir 'asc'|'desc'
  * @var string $today
@@ -17,10 +19,16 @@ use App\Support\View;
 
 include __DIR__ . '/../layout/header.php';
 
-$sortHeader = static function (string $key, string $label) use ($query, $status, $sort, $dir): string {
+$sortHeader = static function (string $key, string $label) use ($query, $status, $tag, $sort, $dir): string {
     $isCurrent = $sort === $key;
     $nextDir = $isCurrent && $dir === 'asc' ? 'desc' : 'asc';
-    $qs = http_build_query(['q' => $query, 'status' => $status, 'sort' => $key, 'dir' => $nextDir]);
+    $qs = http_build_query([
+        'q' => $query,
+        'status' => $status,
+        'tag' => $tag,
+        'sort' => $key,
+        'dir' => $nextDir,
+    ]);
     $arrow = $isCurrent ? ($dir === 'asc' ? ' &#9650;' : ' &#9660;') : '';
 
     return '<a href="/contacts?' . View::e($qs) . '" class="hover:text-brand-ink hover:underline">'
@@ -50,6 +58,17 @@ $sortHeader = static function (string $key, string $label) use ($query, $status,
             </option>
         <?php endforeach ?>
     </select>
+    <?php if ($allTags !== []) : ?>
+        <select name="tag" class="border border-brand-sand rounded-lg px-3 py-2 text-sm bg-white">
+            <option value="">All tags</option>
+            <?php foreach ($allTags as $tagRow) : ?>
+                <option value="<?= View::e((string) $tagRow['name']) ?>"
+                    <?= $tag === (string) $tagRow['name'] ? 'selected' : '' ?>>
+                    <?= View::e((string) $tagRow['name']) ?> (<?= (int) $tagRow['contact_count'] ?>)
+                </option>
+            <?php endforeach ?>
+        </select>
+    <?php endif ?>
     <input type="hidden" name="sort" value="<?= View::e($sort) ?>">
     <input type="hidden" name="dir" value="<?= View::e($dir) ?>">
     <button type="submit"

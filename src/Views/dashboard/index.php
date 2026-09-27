@@ -47,6 +47,11 @@ include __DIR__ . '/../layout/header.php';
                                        class="text-brand-red hover:underline font-medium">
                                         <?= View::e((string) $contact['name']) ?>
                                     </a>
+                                    <?php if (($contact['follow_up_note'] ?? '') !== '') : ?>
+                                        <p class="text-xs text-brand-muted mt-0.5">
+                                            <?= View::e((string) $contact['follow_up_note']) ?>
+                                        </p>
+                                    <?php endif ?>
                                 </td>
                                 <td class="px-4 py-2 text-brand-inksoft">
                                     <?= View::e((string) ($contact['organization_name'] ?? '—')) ?>

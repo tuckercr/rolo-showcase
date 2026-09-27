@@ -55,11 +55,49 @@ HTML — no build pipeline, no SPA, deployable to shared hosting by copying file
   token-guarded endpoint; the app enforces local send time and once-per-day
   semantics, so DST is handled and retries are safe.
 - **Interaction history** — append-friendly activity log with edit-in-place
-  (latest content only, `edited by …` attribution), snooze (1 day / 1 week /
-  1 month) that leaves an audit entry, and trash-can soft deletion with restore.
+  (latest content only, `edited by …` attribution), editable dates, delete,
+  file attachments (allowlisted by extension AND sniffed content type, stored
+  outside the web root under random names, download-only disposition), snooze
+  (1 day / 1 week / 1 month) that leaves an audit entry, and trash-can soft
+  deletion with restore.
+- **Follow-up notes** — checking "Follow-up needed" on an interaction opens a
+  "What needs doing?" field; the note follows the contact onto the dashboard
+  queue and into the daily email until the follow-up is logged, then clears
+  itself.
+- **Tags** — freeform, comma-separated on the contact form, case-insensitively
+  deduped, filterable everywhere, auto-pruned when orphaned. A segment is a
+  tag or a pipeline stage.
 - **Two-person collaboration** — `created_by` / `updated_by` trails are stored
   *and shown* ("added by Jessica · last updated by Colin"), so both users can
   always see who touched what.
+
+## AI agent integration
+
+The CRM doubles as a tool server for AI agents (the owner's assistant connects
+from Claude and Superhuman), with one iron rule enforced at the API layer, not
+in agent instructions: **reads are live, writes never touch the CRM directly.**
+
+- **REST API** (`/api/v1/*`): bearer-token auth with separate read-only and
+  read-write tokens (constant-time comparison), cursor pagination, machine plus
+  human-readable errors, a 120 req/min per-token rate limit, and an audit table
+  recording every request.
+- **MCP endpoint** (`/mcp`): the same tools spoken over the Model Context
+  Protocol (streamable HTTP, stateless) so MCP clients plug in directly:
+  13 tools with JSON schemas, read tools marked `readOnlyHint`. The protocol
+  core is a pure, unit-tested class; clients that cannot send an Authorization
+  header (claude.ai custom connectors) may present the token as a URL secret,
+  which the audit trail redacts.
+- **Approval-gated writes**: every write proposes; a human approves. Proposals
+  are validated immediately (bad payloads never reach the queue), deduped with
+  idempotency keys, and reviewed on an Approvals page that renders each change
+  in plain English: a live before/after diff against current data, and a
+  consequence line ("reschedules the next follow-up to …") computed with the
+  same rules engine that will apply it. Approved changes are attributed to the
+  approver; the proposing token stays on the audit trail.
+- **Schedule-safe by design**: agent-logged activities default to NOT counting
+  as a personal touch, so bulk campaign logging can't clear the human
+  follow-up queue, and a backdated touch approved out of order records history
+  without dragging the schedule backward.
 
 ## Architecture
 
@@ -69,10 +107,12 @@ afternoon:
 ```
 public/index.php     front controller: session, auth gate, FastRoute dispatch
 config/              bootstrap (.env via phpdotenv, UTC discipline), route table
-src/Controllers/     request handling — no SQL, no HTML
+src/Controllers/     request handling — no SQL, no HTML; Api/ holds the
+                     stateless bearer-token REST + MCP controllers
 src/Models/          PDO data access, one class per entity
-src/Services/        ReminderService (the rules engine), GoogleAuthService,
-                     DailySummaryService — pure logic, unit tested
+src/Services/        ReminderService (the rules engine), ProposalService
+                     (validate/queue/apply agent writes), McpProtocol,
+                     GoogleAuthService, DailySummaryService, AttachmentService
 src/Views/           PHP templates only; escaping helper on all dynamic output
 src/Support/         Config, Database, Session, Csrf, Auth, Mailer, Migrator
 database/migrations/ ordered .sql files, forward-only, tracked in a table

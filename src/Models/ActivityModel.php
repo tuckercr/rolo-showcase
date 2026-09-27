@@ -21,9 +21,24 @@ final class ActivityModel
 
     /**
      * Everything that can appear in history — loggable types plus
-     * system-generated entries (snoozes), which are display-only.
+     * system-generated entries (snoozes) and agent-logged campaign touches.
      */
-    public const DISPLAY_TYPES = self::TYPES + ['snoozed' => 'Snoozed'];
+    public const DISPLAY_TYPES = self::TYPES + ['snoozed' => 'Snoozed', 'campaign' => 'Campaign'];
+
+    /**
+     * Types the agent API may propose: everything a human can log, plus
+     * 'campaign' (bulk marketing touches). Never 'snoozed'.
+     */
+    public const API_LOGGABLE_TYPES = [
+        'event_meeting',
+        'email',
+        'call',
+        'coffee',
+        'linkedin_message',
+        'intro_made',
+        'other',
+        'campaign',
+    ];
 
     public function __construct(private readonly Database $db)
     {
@@ -50,6 +65,41 @@ final class ActivityModel
     }
 
     /**
+     * Cursor-paginated activity feed for the agent API (id order). $since
+     * filters on activity_date (YYYY-MM-DD); excludes trashed contacts.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function apiList(int $contactId, string $since, int $afterId, int $limit): array
+    {
+        $sql = 'SELECT a.*, c.name AS contact_name, u.name AS created_by_name,
+                       (SELECT COUNT(*) FROM activity_attachments att
+                        WHERE att.activity_id = a.id) AS attachment_count
+                FROM activities a
+                JOIN contacts c ON a.contact_id = c.id
+                JOIN users u ON a.created_by = u.id';
+        $where = ['c.deleted_at IS NULL', 'a.id > :after_id'];
+        $params = ['after_id' => $afterId];
+
+        if ($contactId > 0) {
+            $where[] = 'a.contact_id = :contact_id';
+            $params['contact_id'] = $contactId;
+        }
+
+        if ($since !== '') {
+            $where[] = 'a.activity_date >= :since';
+            $params['since'] = $since;
+        }
+
+        $sql .= ' WHERE ' . implode(' AND ', $where) . ' ORDER BY a.id LIMIT ' . $limit;
+
+        $stmt = $this->db->pdo()->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll();
+    }
+
+    /**
      * All interactions logged for a given calendar date, regardless of who
      * logged them — used by the daily summary email ("what you did yesterday").
      *
@@ -58,7 +108,9 @@ final class ActivityModel
     public function onDate(string $date): array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT a.*, c.name AS contact_name, u.name AS created_by_name
+            'SELECT a.*, c.name AS contact_name, u.name AS created_by_name,
+                    (SELECT COUNT(*) FROM activity_attachments att
+                     WHERE att.activity_id = a.id) AS attachment_count
              FROM activities a
              JOIN contacts c ON a.contact_id = c.id
              JOIN users u ON a.created_by = u.id
@@ -89,49 +141,67 @@ final class ActivityModel
 
     /**
      * Edit in place — latest content only, no revision history (decision
-     * 2026-07-10). The activity date is deliberately not editable; it
-     * anchors last_touch history.
+     * 2026-07-10; date made editable 2026-07-28 after typos proved the
+     * immutability more annoying than protective).
      */
     public function update(
         int $id,
         string $activityType,
+        string $activityDate,
         string $summary,
         bool $followUpNeeded,
         ?string $followUpDate,
         int $userId,
+        ?string $followUpNote = null,
     ): void {
         $stmt = $this->db->pdo()->prepare(
             'UPDATE activities SET
                 activity_type = :activity_type,
+                activity_date = :activity_date,
                 summary = :summary,
                 follow_up_needed = :follow_up_needed,
                 follow_up_date = :follow_up_date,
+                follow_up_note = :follow_up_note,
                 updated_by = :updated_by,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = :id'
         );
         $stmt->execute([
             'activity_type' => $activityType,
+            'activity_date' => $activityDate,
             'summary' => $summary,
             'follow_up_needed' => (int) $followUpNeeded,
             'follow_up_date' => $followUpDate,
+            'follow_up_note' => $followUpNote,
             'updated_by' => $userId,
             'id' => $id,
         ]);
     }
 
+    public function delete(int $id): void
+    {
+        $stmt = $this->db->pdo()->prepare('DELETE FROM activities WHERE id = :id');
+        $stmt->execute(['id' => $id]);
+    }
+
     /**
-     * Whether this activity is the contact's most recent log entry — edits
-     * to it may reschedule the contact's next touch.
+     * The contact's most recent real touch — snooze entries don't count.
+     * Basis for recomputing last_touch/next_touch after edits and deletes.
+     *
+     * @return array<string, mixed>|null
      */
-    public function isLatestForContact(int $activityId, int $contactId): bool
+    public function latestTouchFor(int $contactId): ?array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT MAX(id) FROM activities WHERE contact_id = :contact_id'
+            "SELECT * FROM activities
+             WHERE contact_id = :contact_id AND activity_type != 'snoozed'
+             ORDER BY activity_date DESC, id DESC
+             LIMIT 1"
         );
         $stmt->execute(['contact_id' => $contactId]);
+        $row = $stmt->fetch();
 
-        return (int) $stmt->fetchColumn() === $activityId;
+        return $row === false ? null : $row;
     }
 
     public function create(
@@ -143,14 +213,15 @@ final class ActivityModel
         bool $followUpNeeded,
         ?string $followUpDate,
         int $userId,
+        ?string $followUpNote = null,
     ): int {
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO activities (
                 contact_id, organization_id, activity_type, activity_date,
-                summary, follow_up_needed, follow_up_date, created_by
+                summary, follow_up_needed, follow_up_date, follow_up_note, created_by
             ) VALUES (
                 :contact_id, :organization_id, :activity_type, :activity_date,
-                :summary, :follow_up_needed, :follow_up_date, :created_by
+                :summary, :follow_up_needed, :follow_up_date, :follow_up_note, :created_by
             )'
         );
 
@@ -162,6 +233,7 @@ final class ActivityModel
             'summary' => $summary,
             'follow_up_needed' => (int) $followUpNeeded,
             'follow_up_date' => $followUpDate,
+            'follow_up_note' => $followUpNote,
             'created_by' => $userId,
         ]);
 

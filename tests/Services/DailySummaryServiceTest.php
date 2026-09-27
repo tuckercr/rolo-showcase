@@ -55,7 +55,8 @@ final class DailySummaryServiceTest extends TestCase
                 'contact_name' => 'Jane Doe',
                 'activity_type' => 'call',
                 'summary' => 'Discussed the proposal',
-                'created_by_name' => 'Jamie Rivera',
+                'created_by_name' => 'Jessica',
+                'attachment_count' => 2,
             ]],
             'activityTypes' => ['call' => 'Call'],
             'todayLabel' => 'Thursday, July 9',
@@ -75,7 +76,8 @@ final class DailySummaryServiceTest extends TestCase
         $this->assertStringContainsString('Sam Smith', $html);
         $this->assertStringContainsString('Logged Wednesday (1)', $html);
         $this->assertStringContainsString('Discussed the proposal', $html);
-        $this->assertStringContainsString('Jamie Rivera', $html);
+        $this->assertStringContainsString('2 attachments', $html);
+        $this->assertStringContainsString('Jessica', $html);
     }
 
     public function testEmailTemplateEmptyStatesNudgeTowardLogging(): void
