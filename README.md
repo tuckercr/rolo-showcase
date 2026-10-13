@@ -30,6 +30,12 @@ with a note saying what actually needs doing.
 
 ![Dashboard](screenshots/dashboard.png)
 
+**Daily email.** Every morning at 9 AM: due today first, then overdue, with
+contact photos embedded as tiny inline attachments and initials for everyone
+else.
+
+![Daily email](screenshots/daily-email.png)
+
 **Contact detail.** Profile photo (click, drop, or paste an image straight
 onto the avatar), full history, cadence snooze, and a one-line "human
 detail" so you remember the person, not just the pipeline stage.
