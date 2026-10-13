@@ -6,13 +6,12 @@ Rolo is a small CRM with one job: never let a relationship go cold. Contacts
 take 30 seconds to capture, every interaction gets logged, and a cadence
 engine decides who you owe a follow-up. It's also an **MCP server** (Model
 Context Protocol): AI assistants like Claude and Superhuman plug straight
-into it, and every change they propose waits for human approval. No
-exceptions.
+into it, and every change they propose waits for human approval.
 
-The stack is deliberately boring. PHP 8.4, MariaDB, server-rendered HTML. No
-build pipeline, no SPA. Deploying is copying files to shared hosting. I built
-it for a real two-person consultancy that was drowning in a Coda spreadsheet;
-it runs their pipeline in production today.
+Plain PHP 8.4, MariaDB, and server-rendered HTML. No build step, no SPA,
+nothing to babysit. Deploys are a file copy to shared hosting. It replaced a
+Coda spreadsheet at a real two-person consultancy and has run their pipeline
+in production since July 2026.
 
 > **Note:** this is a public snapshot of a private production repo. Internal
 > docs, deploy scripts, and history are stripped, and the seed data is
