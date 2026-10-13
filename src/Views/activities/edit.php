@@ -33,13 +33,13 @@ $followUpValue = (string) ($activity['follow_up_date'] ?? '');
 
 <?php if ($attachmentError) : ?>
     <p class="mb-4 max-w-2xl text-sm text-brand-red bg-red-50 border border-red-200 rounded-lg px-4 py-2">
-        Attachment refused — up to 5 files per interaction, 10&nbsp;MB each
+        Attachment refused: up to 5 files per interaction, 10&nbsp;MB each
         (<?= View::e($allowedTypesLabel) ?>). No changes were saved.
     </p>
 <?php endif ?>
 <?php if ($storageError) : ?>
     <p class="mb-4 max-w-2xl text-sm text-brand-red bg-red-50 border border-red-200 rounded-lg px-4 py-2">
-        Couldn&rsquo;t save your file — your other changes went through, but the server
+        Couldn&rsquo;t save your file. Your other changes went through, but the server
         had a storage problem writing the attachment. Try again in a moment.
     </p>
 <?php endif ?>
@@ -105,8 +105,8 @@ $followUpValue = (string) ($activity['follow_up_date'] ?? '');
     </div>
 
     <p class="mt-4 text-xs text-brand-muted">
-        Saving rebuilds the contact&rsquo;s last touch and next touch from the
-        full history — a follow-up date on the most recent interaction wins
+        Saving rebuilds the contact&rsquo;s last contacted and next follow-up dates from the
+        full history; a date on the most recent interaction wins
         over the stage cadence.
     </p>
 
@@ -153,7 +153,7 @@ $followUpValue = (string) ($activity['follow_up_date'] ?? '');
         Delete this interaction
     </button>
     <span class="ml-2 text-xs text-brand-muted">
-        Removes it from the history and recalculates the contact&rsquo;s touch dates.
+        Removes it from the history and recalculates the contact&rsquo;s follow-up dates.
     </span>
 </form>
 

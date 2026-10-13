@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-$headTitle = 'Not Found — Rolo';
+$headTitle = 'Not Found · Rolo';
 ?>
 <!DOCTYPE html>
 <html lang="en">

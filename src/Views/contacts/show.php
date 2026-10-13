@@ -31,6 +31,25 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
 ?>
 
 <div class="flex items-start justify-between flex-wrap gap-3">
+    <div class="flex items-center gap-4">
+        <form id="photo-form" method="post" enctype="multipart/form-data" class="hidden"
+              action="/contacts/<?= (int) $contact['id'] ?>/photo">
+            <?= Csrf::field() ?>
+            <input type="file" name="photo" id="photo-input" accept="image/*"
+                   onchange="this.form.submit()">
+        </form>
+        <div id="avatar-drop" class="relative group cursor-pointer shrink-0"
+             title="Click, drop, or paste an image to set the photo"
+             onclick="document.getElementById('photo-input').click()">
+            <?php
+            $avatar = ['contact' => $contact, 'size' => 'w-20 h-20', 'text' => 'text-2xl'];
+            include __DIR__ . '/../partials/avatar.php';
+            ?>
+            <span class="absolute inset-0 hidden group-hover:flex items-center justify-center
+                         rounded-full bg-black/45 text-white text-xs font-medium">
+                <?= ($contact['photo'] ?? null) !== null ? 'Replace' : 'Add photo' ?>
+            </span>
+        </div>
     <div>
         <h1 class="font-serif text-3xl text-brand-ink"><?= View::e((string) $contact['name']) ?></h1>
         <p class="mt-1 text-sm text-brand-muted">
@@ -38,8 +57,24 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
             <?php if (($contact['title'] ?? null) !== null && ($contact['organization_name'] ?? null) !== null) : ?>
                 &middot;
             <?php endif ?>
-            <?= View::e((string) ($contact['organization_name'] ?? '')) ?>
+            <?php if (($contact['organization_id'] ?? null) !== null) : ?>
+                <a href="/organizations/<?= (int) $contact['organization_id'] ?>"
+                   class="hover:text-brand-red hover:underline">
+                    <?= View::e((string) ($contact['organization_name'] ?? '')) ?>
+                </a>
+            <?php endif ?>
         </p>
+        <?php if (($contact['photo'] ?? null) !== null) : ?>
+            <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/photo/delete"
+                  onsubmit="return confirm('Remove this photo?');">
+                <?= Csrf::field() ?>
+                <button type="submit"
+                        class="mt-1 text-xs text-brand-muted hover:text-brand-red underline">
+                    Remove photo
+                </button>
+            </form>
+        <?php endif ?>
+    </div>
     </div>
     <div class="flex items-center gap-2">
         <button type="button" id="back-nav" onclick="history.back()" hidden
@@ -56,7 +91,7 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                    class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-2
                           rounded-lg">&rarr;</a>
             <?php else : ?>
-                <a href="/" title="Queue done — back to dashboard"
+                <a href="/" title="Queue done, back to dashboard"
                    class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-2
                           rounded-lg">&rarr;</a>
             <?php endif ?>
@@ -65,12 +100,21 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
            class="text-sm bg-brand-ink hover:bg-brand-red text-white px-4 py-2 rounded-lg">Edit</a>
         <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/trash"
               onsubmit="return confirm('Move <?= View::e((string) $contact['name']) ?> to the trash?\n'
-                  + 'Nothing is lost — you can restore from Contacts > Trash.');">
+                  + 'Nothing is lost. You can restore from Contacts > Trash.');">
             <?= Csrf::field() ?>
-            <button type="submit"
-                    class="text-sm text-brand-red border border-brand-red/40 hover:bg-red-50
-                           px-4 py-2 rounded-lg">
-                Move to trash
+            <button type="submit" title="Move to trash" aria-label="Move to trash"
+                    class="text-brand-muted hover:text-brand-inksoft hover:bg-brand-cream2
+                           p-1 rounded-lg">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"
+                     stroke-linecap="round" stroke-linejoin="round" class="w-7 h-7"
+                     aria-hidden="true">
+                    <path d="M5 6.2 L14.6 3.8" />
+                    <path d="M9.1 3.6 L11.1 3.1" />
+                    <path d="M5.6 8.4 h8.8 L13.2 16.5 a1.2 1.2 0 0 1 -1.2 1 H8 a1.2 1.2 0 0
+                             1 -1.2 -1 Z" />
+                    <path d="M8.3 10.8 L8.6 15" />
+                    <path d="M11.7 10.8 L11.4 15" />
+                </svg>
             </button>
         </form>
     </div>
@@ -102,7 +146,7 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                 <p class="text-brand-ink font-medium"><?= View::e((string) $contact['relationship_status']) ?></p>
             </div>
             <div>
-                <p class="text-xs uppercase tracking-wide text-brand-muted">Next touch</p>
+                <p class="text-xs uppercase tracking-wide text-brand-muted">Next follow-up</p>
                 <p class="<?= $isOverdue ? 'text-brand-red font-semibold' : 'text-brand-ink' ?>">
                     <?= View::e($next === '' ? 'No reminder' : $next) ?>
                     <?= $isOverdue ? ' (overdue)' : '' ?>
@@ -122,13 +166,13 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                     <button type="submit"
                             class="text-xs text-brand-inksoft border border-brand-sand
                                    hover:bg-brand-cream2 rounded px-2.5 py-1"
-                            title="Set the next touch to today + the chosen length">
+                            title="Set the next follow-up to today + the chosen length">
                         Snooze
                     </button>
                 </form>
             </div>
             <div>
-                <p class="text-xs uppercase tracking-wide text-brand-muted">Last touch</p>
+                <p class="text-xs uppercase tracking-wide text-brand-muted">Last contacted</p>
                 <p class="text-brand-ink"><?= View::e((string) ($contact['last_touch_date'] ?? 'Never')) ?></p>
             </div>
             <?php if (($contact['cadence_days_override'] ?? null) !== null) : ?>
@@ -182,18 +226,18 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
             <h2 class="text-sm font-semibold text-brand-inksoft">Log an interaction</h2>
             <?php if ($activityError) : ?>
                 <p class="mt-2 text-xs text-brand-red">
-                    Couldn&rsquo;t save that — check the type and dates and try again.
+                    Couldn&rsquo;t save that. Check the type and dates and try again.
                 </p>
             <?php endif ?>
             <?php if ($attachmentError) : ?>
                 <p class="mt-2 text-xs text-brand-red">
-                    Attachment refused — up to 5 files, 10&nbsp;MB each
+                    Attachment refused: up to 5 files, 10&nbsp;MB each
                     (<?= View::e($allowedTypesLabel) ?>). Nothing was saved.
                 </p>
             <?php endif ?>
             <?php if ($storageError) : ?>
                 <p class="mt-2 text-xs text-brand-red">
-                    Couldn&rsquo;t save your file — the interaction was logged, but the
+                    Couldn&rsquo;t save your file. The interaction was logged, but the
                     server had a storage problem. Try attaching it again from the
                     interaction&rsquo;s Edit link below.
                 </p>
@@ -250,8 +294,8 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                     Log it
                 </button>
                 <span class="ml-2 text-xs text-brand-muted">
-                    Updates last touch and reschedules the next one — a follow-up
-                    date you set here wins over the stage cadence.
+                    Updates the last contacted date and reschedules the follow-up. A date
+                    you set here wins over the stage cadence.
                 </span>
             </form>
         </div>
@@ -349,6 +393,39 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                 .catch(function () {
                     form.submit();
                 });
+        });
+    })();
+</script>
+
+<script>
+    // Photo upload via drag-drop or paste, in addition to the click-to-pick
+    // file input. Pasting is the fast path for photos copied off the web.
+    (function () {
+        const drop = document.getElementById('avatar-drop');
+        const input = document.getElementById('photo-input');
+
+        function uploadFile(file) {
+            if (!file || !file.type.startsWith('image/')) {
+                return;
+            }
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+            input.form.submit();
+        }
+
+        drop.addEventListener('dragover', function (e) {
+            e.preventDefault();
+        });
+        drop.addEventListener('drop', function (e) {
+            e.preventDefault();
+            uploadFile(e.dataTransfer.files[0]);
+        });
+        document.addEventListener('paste', function (e) {
+            const items = e.clipboardData && e.clipboardData.files;
+            if (items && items.length > 0) {
+                uploadFile(items[0]);
+            }
         });
     })();
 </script>

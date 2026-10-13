@@ -13,7 +13,7 @@ final class AuthController extends Controller
 {
     private const ERROR_MESSAGES = [
         'not_allowed' => 'That Google account isn\'t on the allowlist for this app.',
-        'google_failed' => 'Google sign-in didn\'t complete — please try again.',
+        'google_failed' => 'Google sign-in didn\'t complete. Please try again.',
         'not_configured' => 'Google Sign-In isn\'t configured yet.',
     ];
 

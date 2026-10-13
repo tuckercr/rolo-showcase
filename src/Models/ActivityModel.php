@@ -108,7 +108,8 @@ final class ActivityModel
     public function onDate(string $date): array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT a.*, c.name AS contact_name, u.name AS created_by_name,
+            'SELECT a.*, c.name AS contact_name, c.photo AS contact_photo,
+                    u.name AS created_by_name,
                     (SELECT COUNT(*) FROM activity_attachments att
                      WHERE att.activity_id = a.id) AS attachment_count
              FROM activities a

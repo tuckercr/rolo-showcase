@@ -61,7 +61,7 @@ include __DIR__ . '/../layout/header.php';
                         <th class="px-4 py-2 font-medium">Name</th>
                         <th class="px-4 py-2 font-medium">Title</th>
                         <th class="px-4 py-2 font-medium">Stage</th>
-                        <th class="px-4 py-2 font-medium">Next touch</th>
+                        <th class="px-4 py-2 font-medium">Next follow-up</th>
                     </tr>
                 </thead>
                 <tbody>

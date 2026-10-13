@@ -21,8 +21,10 @@ final class Mailer
 
     /**
      * @param list<string> $to
+     * @param array<string, string> $inlineImages cid => absolute file path,
+     *        embedded as inline attachments (referenced as src="cid:...")
      */
-    public function send(array $to, string $subject, string $html): void
+    public function send(array $to, string $subject, string $html, array $inlineImages = []): void
     {
         if ($to === []) {
             throw new RuntimeException('No recipients given.');
@@ -46,6 +48,10 @@ final class Mailer
 
             foreach ($to as $address) {
                 $mail->addAddress($address);
+            }
+
+            foreach ($inlineImages as $cid => $path) {
+                $mail->addEmbeddedImage($path, (string) $cid, basename($path) . '.jpg', 'base64', 'image/jpeg');
             }
 
             $mail->CharSet = PHPMailer::CHARSET_UTF8;

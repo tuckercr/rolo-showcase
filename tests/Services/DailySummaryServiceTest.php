@@ -52,6 +52,7 @@ final class DailySummaryServiceTest extends TestCase
                 'next_touch_date' => '2026-07-09',
             ]],
             'yesterdayActivities' => [[
+                'contact_id' => 7,
                 'contact_name' => 'Jane Doe',
                 'activity_type' => 'call',
                 'summary' => 'Discussed the proposal',
@@ -61,6 +62,7 @@ final class DailySummaryServiceTest extends TestCase
             'activityTypes' => ['call' => 'Call'],
             'todayLabel' => 'Thursday, July 9',
             'yesterdayLabel' => 'Wednesday',
+            'photoCids' => [7 => 'photo-c7'],
         ]);
 
         $this->assertStringContainsString('Have you logged what you did yesterday?', $html);
@@ -73,11 +75,17 @@ final class DailySummaryServiceTest extends TestCase
         $this->assertStringContainsString('https://crm.example.com/contacts/7', $html);
         $this->assertStringContainsString('Jane Doe', $html);
         $this->assertStringContainsString('Due today (1)', $html);
+        $dueTodayPos = strpos($html, 'Due today (1)');
+        $this->assertLessThan($overduePos, $dueTodayPos, 'Due today must sit above Overdue.');
         $this->assertStringContainsString('Sam Smith', $html);
         $this->assertStringContainsString('Logged Wednesday (1)', $html);
         $this->assertStringContainsString('Discussed the proposal', $html);
         $this->assertStringContainsString('2 attachments', $html);
         $this->assertStringContainsString('Jessica', $html);
+
+        // Jane (id 7) has an embedded photo; Sam falls back to initials.
+        $this->assertStringContainsString('cid:photo-c7', $html);
+        $this->assertStringContainsString('>SS</span>', $html);
     }
 
     public function testEmailTemplateEmptyStatesNudgeTowardLogging(): void
@@ -90,11 +98,14 @@ final class DailySummaryServiceTest extends TestCase
             'activityTypes' => [],
             'todayLabel' => 'Thursday, July 9',
             'yesterdayLabel' => 'Wednesday',
+            'photoCids' => [7 => 'photo-c7'],
         ]);
 
         $this->assertStringContainsString('Nothing overdue', $html);
-        $this->assertStringContainsString('Nothing due today', $html);
         $this->assertStringContainsString('No interactions were logged yesterday', $html);
+
+        // An empty Due today section is hidden entirely, not shown as empty.
+        $this->assertStringNotContainsString('Due today', $html);
     }
 
     public function testEmailEscapesUserContent(): void
@@ -113,6 +124,7 @@ final class DailySummaryServiceTest extends TestCase
             'activityTypes' => [],
             'todayLabel' => 'Thursday, July 9',
             'yesterdayLabel' => 'Wednesday',
+            'photoCids' => [7 => 'photo-c7'],
         ]);
 
         $this->assertStringNotContainsString('<script>', $html);

@@ -2,15 +2,16 @@
 
 [![CI](https://github.com/tuckercr/rolo-showcase/actions/workflows/ci.yml/badge.svg)](https://github.com/tuckercr/rolo-showcase/actions/workflows/ci.yml)
 
-A CRM I built for a two-person consultancy that was drowning in a Coda
-spreadsheet. The whole idea fits in one sentence: capture a contact in under
-30 seconds, log every interaction, never lose track of who to talk to next.
+Rolo is a small CRM with one job: never let a relationship go cold. Contacts
+take 30 seconds to capture, every interaction gets logged, and a cadence
+engine decides who you owe a follow-up. It's also an **MCP server** (Model
+Context Protocol): AI assistants like Claude and Superhuman plug straight
+into it, and every change they propose waits for human approval.
 
-The stack is deliberately boring. PHP 8.4, MariaDB, server-rendered HTML. No
-build pipeline, no SPA. Deploying is copying files to shared hosting. There's
-one deliberately modern piece: the CRM is also an **MCP server** (Model
-Context Protocol), so AI assistants like Claude and Superhuman plug straight
-into it. Every change they propose waits for human approval. No exceptions.
+Plain PHP 8.4, MariaDB, and server-rendered HTML. No build step, no SPA,
+nothing to babysit. Deploys are a file copy to shared hosting. It replaced a
+Coda spreadsheet at a real two-person consultancy and has run their pipeline
+in production since July 2026.
 
 > **Note:** this is a public snapshot of a private production repo. Internal
 > docs, deploy scripts, and history are stripped, and the seed data is
@@ -29,7 +30,14 @@ with a note saying what actually needs doing.
 
 ![Dashboard](screenshots/dashboard.png)
 
-**Contact detail.** Full history, cadence snooze, and a one-line "human
+**Daily email.** Every morning at 9 AM: due today first, then overdue, with
+contact photos embedded as tiny inline attachments and initials for everyone
+else.
+
+![Daily email](screenshots/daily-email.png)
+
+**Contact detail.** Profile photo (click, drop, or paste an image straight
+onto the avatar), full history, cadence snooze, and a one-line "human
 detail" so you remember the person, not just the pipeline stage.
 
 ![Contact detail](screenshots/contact-detail.png)
@@ -73,6 +81,12 @@ instructions: **reads are live, writes never land directly.**
   configurable pipeline (New/Captured through Active client), search,
   sortable columns, and a "human detail" field for the one memorable thing
   about each person.
+- **Profile photos.** Click the avatar, drop a file on it, or paste an image
+  from the clipboard. Server-side GD processing EXIF-rotates, center-crops,
+  resizes to 400px and re-encodes, which also strips EXIF/GPS metadata;
+  files live outside the web root and are served through a session-gated
+  route. Contacts without a photo get a deterministic initials avatar, same
+  color for the same name everywhere, including the email.
 - **A follow-up rules engine.** Every logged interaction or stage change
   schedules the next touch from per-stage cadence rules stored in the
   database: fixed days, cadence from last touch, or business days. Rules are
@@ -82,11 +96,13 @@ instructions: **reads are live, writes never land directly.**
 - **A dashboard that matches how the user actually works.** Overdue plus due
   this week, the real Monday review. Overdue is always derived
   (`next_touch_date < today`), never stored, so it can't drift.
-- **A daily summary email.** Every morning at 9 AM Eastern: overdue, due
-  today, what was logged yesterday, topped with a "have you logged what you
-  did yesterday?" nudge. A GitHub Actions schedule hits a token-guarded
-  endpoint; the app enforces local send time and once-per-day semantics, so
-  DST is handled and retries are safe.
+- **A daily summary email.** Every morning at 9 AM Eastern: due today first
+  (hidden entirely when empty), then overdue, then what was logged
+  yesterday, with tiny inline photo thumbnails (CID attachments, since the
+  photo route is auth-gated and Gmail strips data URIs) and initials
+  fallbacks. A GitHub Actions schedule hits a token-guarded endpoint; the
+  app enforces local send time and once-per-day semantics, so DST is
+  handled and retries are safe.
 - **An interaction history built for real use.** Edit in place with "edited
   by" attribution, editable dates, delete, file attachments (allowlisted by
   extension AND sniffed content type, stored outside the web root under
@@ -100,6 +116,11 @@ instructions: **reads are live, writes never land directly.**
 - **Two-person collaboration.** `created_by` / `updated_by` trails are stored
   and shown ("added by Jessica, last updated by Colin"), so both users always
   know who touched what.
+
+There's also a built-in Help page covering connector setup for
+non-technical users: what the AI integration is, how to connect Claude and
+Superhuman, example prompts, and troubleshooting, written so the private
+connector link is treated like a password.
 
 ## Architecture
 

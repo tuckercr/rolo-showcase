@@ -10,7 +10,7 @@ use App\Support\View;
  * @var array<string, mixed>|null $currentUser
  */
 
-$headTitle = $pageTitle . ' — Rolo';
+$headTitle = $pageTitle . ' · Rolo';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -28,6 +28,7 @@ $headTitle = $pageTitle . ' — Rolo';
         <a href="/organizations" class="text-sm text-brand-inksoft hover:text-brand-red">Organizations</a>
         <a href="/attachments" class="text-sm text-brand-inksoft hover:text-brand-red">Files</a>
         <a href="/settings" class="text-sm text-brand-inksoft hover:text-brand-red">Settings</a>
+        <a href="/help" class="text-sm text-brand-inksoft hover:text-brand-red">Help</a>
         <?php if (($pendingProposals ?? 0) > 0) : ?>
             <a href="/proposals"
                class="text-sm text-brand-red font-medium hover:underline">
