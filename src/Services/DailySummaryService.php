@@ -53,6 +53,8 @@ final class DailySummaryService
         }
 
         $data = $this->gather($now);
+        [$photoCids, $inlineImages] = $this->photoEmbeds($data);
+        $data['photoCids'] = $photoCids;
         $html = View::render('emails/daily_summary', $data);
         $subject = sprintf(
             'Rolo: %d overdue, %d due today (%s)',
@@ -61,10 +63,61 @@ final class DailySummaryService
             $now->format('D M j'),
         );
 
-        $this->mailer->send($this->config->summaryRecipients, $subject, $html);
+        try {
+            $this->mailer->send($this->config->summaryRecipients, $subject, $html, $inlineImages);
+        } finally {
+            foreach ($inlineImages as $tmp) {
+                @unlink($tmp);
+            }
+        }
+
         $this->recordSent($today);
 
         return 'sent to ' . implode(', ', $this->config->summaryRecipients);
+    }
+
+    /**
+     * Tiny inline-attachment thumbnails for every pictured contact in the
+     * email (CID embedding: the photo route is session-gated, so mail
+     * clients could never fetch it, and Gmail strips data: URIs).
+     *
+     * @param array<string, mixed> $data gather() output
+     * @return array{0: array<int, string>, 1: array<string, string>}
+     *         [contact id => cid, cid => temp file path]
+     */
+    private function photoEmbeds(array $data): array
+    {
+        $photos = new PhotoService(dirname(__DIR__, 2) . '/storage/photos');
+        $cids = [];
+        $files = [];
+
+        $candidates = [];
+
+        foreach (array_merge($data['overdue'], $data['dueToday']) as $contact) {
+            $candidates[(int) $contact['id']] = $contact['photo'] ?? null;
+        }
+
+        foreach ($data['yesterdayActivities'] as $activity) {
+            $candidates[(int) $activity['contact_id']] ??= $activity['contact_photo'] ?? null;
+        }
+
+        foreach ($candidates as $contactId => $photo) {
+            if ($photo === null || $photo === '') {
+                continue;
+            }
+
+            $tmp = $photos->thumbnail((string) $photo, 56);
+
+            if ($tmp === null) {
+                continue;
+            }
+
+            $cid = 'photo-c' . $contactId;
+            $cids[$contactId] = $cid;
+            $files[$cid] = $tmp;
+        }
+
+        return [$cids, $files];
     }
 
     public static function isSendTime(DateTimeImmutable $nowLocal): bool

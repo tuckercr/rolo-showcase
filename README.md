@@ -29,7 +29,8 @@ with a note saying what actually needs doing.
 
 ![Dashboard](screenshots/dashboard.png)
 
-**Contact detail.** Full history, cadence snooze, and a one-line "human
+**Contact detail.** Profile photo (click, drop, or paste an image straight
+onto the avatar), full history, cadence snooze, and a one-line "human
 detail" so you remember the person, not just the pipeline stage.
 
 ![Contact detail](screenshots/contact-detail.png)
@@ -73,6 +74,12 @@ instructions: **reads are live, writes never land directly.**
   configurable pipeline (New/Captured through Active client), search,
   sortable columns, and a "human detail" field for the one memorable thing
   about each person.
+- **Profile photos.** Click the avatar, drop a file on it, or paste an image
+  from the clipboard. Server-side GD processing EXIF-rotates, center-crops,
+  resizes to 400px and re-encodes, which also strips EXIF/GPS metadata;
+  files live outside the web root and are served through a session-gated
+  route. Contacts without a photo get a deterministic initials avatar, same
+  color for the same name everywhere, including the email.
 - **A follow-up rules engine.** Every logged interaction or stage change
   schedules the next touch from per-stage cadence rules stored in the
   database: fixed days, cadence from last touch, or business days. Rules are
@@ -82,11 +89,13 @@ instructions: **reads are live, writes never land directly.**
 - **A dashboard that matches how the user actually works.** Overdue plus due
   this week, the real Monday review. Overdue is always derived
   (`next_touch_date < today`), never stored, so it can't drift.
-- **A daily summary email.** Every morning at 9 AM Eastern: overdue, due
-  today, what was logged yesterday, topped with a "have you logged what you
-  did yesterday?" nudge. A GitHub Actions schedule hits a token-guarded
-  endpoint; the app enforces local send time and once-per-day semantics, so
-  DST is handled and retries are safe.
+- **A daily summary email.** Every morning at 9 AM Eastern: due today first
+  (hidden entirely when empty), then overdue, then what was logged
+  yesterday, with tiny inline photo thumbnails (CID attachments, since the
+  photo route is auth-gated and Gmail strips data URIs) and initials
+  fallbacks. A GitHub Actions schedule hits a token-guarded endpoint; the
+  app enforces local send time and once-per-day semantics, so DST is
+  handled and retries are safe.
 - **An interaction history built for real use.** Edit in place with "edited
   by" attribution, editable dates, delete, file attachments (allowlisted by
   extension AND sniffed content type, stored outside the web root under
@@ -100,6 +109,11 @@ instructions: **reads are live, writes never land directly.**
 - **Two-person collaboration.** `created_by` / `updated_by` trails are stored
   and shown ("added by Jessica, last updated by Colin"), so both users always
   know who touched what.
+
+There's also a built-in Help page covering connector setup for
+non-technical users: what the AI integration is, how to connect Claude and
+Superhuman, example prompts, and troubleshooting, written so the private
+connector link is treated like a password.
 
 ## Architecture
 

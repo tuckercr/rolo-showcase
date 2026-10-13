@@ -89,8 +89,8 @@ $sortHeader = static function (string $key, string $label) use ($query, $status,
                     <th class="px-4 py-2 font-medium"><?= $sortHeader('name', 'Name') ?></th>
                     <th class="px-4 py-2 font-medium"><?= $sortHeader('organization', 'Organization') ?></th>
                     <th class="px-4 py-2 font-medium"><?= $sortHeader('stage', 'Stage') ?></th>
-                    <th class="px-4 py-2 font-medium"><?= $sortHeader('last_touch', 'Last touch') ?></th>
-                    <th class="px-4 py-2 font-medium"><?= $sortHeader('next_touch', 'Next touch') ?></th>
+                    <th class="px-4 py-2 font-medium"><?= $sortHeader('last_touch', 'Last contacted') ?></th>
+                    <th class="px-4 py-2 font-medium"><?= $sortHeader('next_touch', 'Next follow-up') ?></th>
                     <th class="px-4 py-2 font-medium">Added by</th>
                     <th class="px-4 py-2"></th>
                 </tr>
@@ -103,13 +103,24 @@ $sortHeader = static function (string $key, string $label) use ($query, $status,
                     ?>
                     <tr class="border-b last:border-0 hover:bg-brand-cream">
                         <td class="px-4 py-2">
-                            <a href="/contacts/<?= (int) $contact['id'] ?>"
+                            <span class="flex items-center gap-2.5">
+                                <?php
+                                $avatar = ['contact' => $contact];
+                                include __DIR__ . '/../partials/avatar.php';
+                                ?>
+                                <a href="/contacts/<?= (int) $contact['id'] ?>"
                                class="text-brand-red hover:underline font-medium">
                                 <?= View::e((string) $contact['name']) ?>
                             </a>
+                            </span>
                         </td>
                         <td class="px-4 py-2 text-brand-inksoft">
-                            <?= View::e((string) ($contact['organization_name'] ?? '—')) ?>
+                            <?php if ($contact['organization_id'] !== null) : ?>
+                                <a href="/organizations/<?= (int) $contact['organization_id'] ?>"
+                                   class="hover:text-brand-red hover:underline">
+                                    <?= View::e((string) $contact['organization_name']) ?>
+                                </a>
+                            <?php endif ?>
                         </td>
                         <td class="px-4 py-2 text-brand-inksoft">
                             <?= View::e((string) $contact['relationship_status']) ?>

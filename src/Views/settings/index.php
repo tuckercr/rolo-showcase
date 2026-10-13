@@ -28,14 +28,14 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
     <div class="mt-3 bg-brand-cream2 border border-brand-sand rounded-lg px-4 py-3 text-sm text-brand-inksoft">
         <p>
             When an interaction is logged or a contact changes stage, Rolo schedules
-            the contact&rsquo;s <strong>next touch</strong> using these rules — that&rsquo;s
+            the contact&rsquo;s <strong>next follow-up</strong> using these rules. That&rsquo;s
             what feeds the dashboard and the morning summary email.
         </p>
         <p class="mt-2">Two things take precedence over the cadence:</p>
         <ul class="mt-1 ml-5 list-disc space-y-1">
             <li>
                 A <strong>follow-up date</strong> set while logging an interaction always
-                wins — if you say &ldquo;follow up by Saturday,&rdquo; Saturday it is.
+                wins. If you say &ldquo;follow up by Saturday,&rdquo; Saturday it is.
             </li>
             <li>
                 A per-contact <strong>cadence override</strong> (on the contact&rsquo;s edit
@@ -43,7 +43,7 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
             </li>
         </ul>
         <p class="mt-2 text-xs text-brand-muted">
-            Changes here apply the next time a contact is touched or changes stage —
+            Changes here apply the next time an interaction is logged or a stage changes;
             already-scheduled dates aren&rsquo;t recalculated.
         </p>
     </div>
@@ -74,7 +74,7 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
                     $default = $defaults[$stageName] ?? null;
                     $defaultLabel = $default === null
                         ? 'No reminder'
-                        : $default['value_days'] . 'd — ' . ($ruleTypes[$default['rule_type']] ?? '');
+                        : $default['value_days'] . 'd: ' . ($ruleTypes[$default['rule_type']] ?? '');
                     ?>
                     <tr class="border-b last:border-0 align-top">
                         <td class="px-4 py-3 font-medium text-brand-ink whitespace-nowrap">

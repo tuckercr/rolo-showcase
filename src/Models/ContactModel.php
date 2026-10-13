@@ -221,6 +221,17 @@ final class ContactModel
     }
 
     /**
+     * Set or clear the profile photo's stored filename.
+     */
+    public function setPhoto(int $id, ?string $storedName, int $userId): void
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'UPDATE contacts SET photo = :photo, updated_by = :updated_by WHERE id = :id'
+        );
+        $stmt->execute(['photo' => $storedName, 'updated_by' => $userId, 'id' => $id]);
+    }
+
+    /**
      * Move to trash. Everything is kept — activities, dates, attribution —
      * the contact just disappears from lists and reminders until restored.
      */

@@ -39,7 +39,7 @@ $lowSpace = $freeBytes !== null && $freeBytes < 2_147_483_648; // < 2 GB
     &middot; <?= $fmtBytes($totalBytes) ?> used
     <?php if ($freeBytes !== null) : ?>
         &middot; <?= $fmtBytes($freeBytes) ?> free on the server
-        <?= $lowSpace ? ' — running low!' : '' ?>
+        <?= $lowSpace ? ' (running low!)' : '' ?>
     <?php endif ?>
 </p>
 
@@ -55,7 +55,7 @@ $lowSpace = $freeBytes !== null && $freeBytes < 2_147_483_648; // < 2 GB
 
 <?php if ($attachments === []) : ?>
     <p class="mt-8 text-sm text-brand-muted">
-        No files<?= $query !== '' ? ' match that search' : ' yet' ?> — attach documents
+        No files<?= $query !== '' ? ' match that search' : ' yet' ?>. Attach documents
         when logging an interaction on a contact&rsquo;s page.
     </p>
 <?php else : ?>

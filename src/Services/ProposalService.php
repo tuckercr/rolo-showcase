@@ -781,7 +781,8 @@ final class ProposalService
             $level = 'info';
         } elseif ($explicitFollowUp !== null) {
             $consequence = sprintf(
-                'Sets the last touch to %s and the next follow-up to %s (the explicit date wins over the cadence).',
+                'Sets the last contacted date to %s and the next follow-up to %s'
+                    . ' (the explicit date wins over the cadence).',
                 $date,
                 $explicitFollowUp,
             );
@@ -795,10 +796,11 @@ final class ProposalService
             );
             $consequence = $next === null
                 ? sprintf(
-                    'Sets the last touch to %s; this stage has no reminder rule, so no follow-up is scheduled.',
+                    'Sets the last contacted date to %s; this stage has no reminder rule,'
+                        . ' so no follow-up is scheduled.',
                     $date,
                 )
-                : sprintf('Sets the last touch to %s and the next follow-up to %s.', $date, $next);
+                : sprintf('Sets the last contacted date to %s and the next follow-up to %s.', $date, $next);
             $level = 'warning';
         }
 

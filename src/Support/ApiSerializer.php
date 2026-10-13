@@ -35,6 +35,7 @@ final class ApiSerializer
             'last_touch_date' => $c['last_touch_date'],
             'next_touch_date' => $c['next_touch_date'],
             'follow_up_note' => $c['follow_up_note'] ?? null,
+            'has_photo' => ($c['photo'] ?? null) !== null,
             'cadence_days_override' => $c['cadence_days_override'] === null
                 ? null
                 : (int) $c['cadence_days_override'],

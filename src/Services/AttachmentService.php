@@ -94,13 +94,13 @@ final class AttachmentService
     {
         if ($errorCode !== UPLOAD_ERR_OK) {
             throw new InvalidArgumentException(
-                sprintf('"%s" failed to upload (code %d) — try again.', $originalName, $errorCode)
+                sprintf('"%s" failed to upload (code %d). Try again.', $originalName, $errorCode)
             );
         }
 
         if ($size <= 0 || $size > self::MAX_BYTES) {
             throw new InvalidArgumentException(
-                sprintf('"%s" is too large — the limit is 10 MB per file.', $originalName)
+                sprintf('"%s" is too large; the limit is 10 MB per file.', $originalName)
             );
         }
 
@@ -119,7 +119,7 @@ final class AttachmentService
 
         if (!in_array($actualMime, self::ALLOWED[$extension], true)) {
             throw new InvalidArgumentException(sprintf(
-                '"%s" doesn\'t look like a real .%s file — upload refused.',
+                '"%s" doesn\'t look like a real .%s file; upload refused.',
                 $originalName,
                 $extension,
             ));

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Support\AvatarTone;
 use App\Support\View;
 
 /**
@@ -14,18 +15,39 @@ use App\Support\View;
  * @var array<string, string> $activityTypes
  * @var string $todayLabel
  * @var string $yesterdayLabel
+ * @var array<int, string> $photoCids contact id => inline-attachment cid
  */
+
+$photoCids = $photoCids ?? [];
+
+$avatarCell = static function (int $contactId, string $name) use ($photoCids): string {
+    $cell = '<td style="width:40px;padding:8px 0 8px 12px;border-bottom:1px solid #DCD3C2;'
+        . 'vertical-align:middle;">';
+
+    if (isset($photoCids[$contactId])) {
+        return $cell . '<img src="cid:' . View::e($photoCids[$contactId]) . '" width="28" height="28"'
+            . ' alt="" style="display:block;border-radius:50%;">' . '</td>';
+    }
+
+    $tone = AvatarTone::for($name);
+
+    return $cell . '<span style="display:inline-block;width:28px;height:28px;line-height:28px;'
+        . 'border-radius:50%;text-align:center;font-size:11px;font-weight:bold;'
+        . 'background-color:' . $tone['bg'] . ';color:' . $tone['text'] . ';">'
+        . View::e(AvatarTone::initials($name)) . '</span></td>';
+};
 
 $rowStyle = 'padding:8px 12px;border-bottom:1px solid #DCD3C2;font-size:14px;color:#3A3630;';
 $headingStyle = 'font-size:13px;text-transform:uppercase;letter-spacing:0.05em;'
     . 'margin:28px 0 8px;font-weight:bold;';
 
-$contactRows = static function (array $contacts) use ($appUrl, $rowStyle): string {
+$contactRows = static function (array $contacts) use ($appUrl, $rowStyle, $avatarCell): string {
     $html = '';
 
     foreach ($contacts as $contact) {
         $org = (string) ($contact['organization_name'] ?? '');
         $html .= '<tr>'
+            . $avatarCell((int) $contact['id'], (string) $contact['name'])
             . '<td style="' . $rowStyle . '">'
             . '<a href="' . View::e($appUrl . '/contacts/' . (int) $contact['id']) . '"'
             . ' style="color:#C1272D;font-weight:bold;text-decoration:none;">'
@@ -58,19 +80,35 @@ $contactRows = static function (array $contacts) use ($appUrl, $rowStyle): strin
 
     <tr><td style="background-color:#111111;padding:20px 28px;">
         <span style="color:#ffffff;font-size:18px;font-weight:bold;">Rolo</span>
-        <span style="color:#8A857C;font-size:13px;"> — <?= View::e($todayLabel) ?></span>
+        <span style="color:#8A857C;font-size:13px;"> &middot; <?= View::e($todayLabel) ?></span>
     </td></tr>
 
-    <tr><td style="padding:24px 28px 0;">
-        <a href="<?= View::e($appUrl) ?>"
-           style="display:block;background-color:#C1272D;color:#ffffff;text-align:center;
-                  padding:14px 20px;border-radius:8px;font-size:15px;font-weight:bold;
-                  text-decoration:none;">
-            Have you logged what you did yesterday? &rarr;
-        </a>
+    <tr><td style="padding:20px 28px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-size:14px;color:#3A3630;">
+                Have you logged what you did yesterday?
+            </td>
+            <td align="right" style="white-space:nowrap;">
+                <a href="<?= View::e($appUrl) ?>"
+                   style="display:inline-block;background-color:#C1272D;color:#ffffff;
+                          padding:8px 14px;border-radius:6px;font-size:13px;
+                          font-weight:bold;text-decoration:none;">
+                    Open Rolo &rarr;
+                </a>
+            </td>
+        </tr></table>
     </td></tr>
 
     <tr><td style="padding:0 28px 28px;">
+
+        <?php if ($dueToday !== []) : ?>
+            <h2 style="<?= $headingStyle ?>color:#5A5650;">
+                Due today (<?= count($dueToday) ?>)
+            </h2>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <?= $contactRows($dueToday) ?>
+            </table>
+        <?php endif ?>
 
         <h2 style="<?= $headingStyle ?>color:#C1272D;">
             Overdue (<?= count($overdue) ?>)
@@ -84,29 +122,23 @@ $contactRows = static function (array $contacts) use ($appUrl, $rowStyle): strin
         <?php endif ?>
 
         <h2 style="<?= $headingStyle ?>color:#5A5650;">
-            Due today (<?= count($dueToday) ?>)
-        </h2>
-        <?php if ($dueToday === []) : ?>
-            <p style="font-size:14px;color:#8A857C;margin:0;">Nothing due today.</p>
-        <?php else : ?>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <?= $contactRows($dueToday) ?>
-            </table>
-        <?php endif ?>
-
-        <h2 style="<?= $headingStyle ?>color:#5A5650;">
             Logged <?= View::e($yesterdayLabel) ?> (<?= count($yesterdayActivities) ?>)
         </h2>
         <?php if ($yesterdayActivities === []) : ?>
             <p style="font-size:14px;color:#8A857C;margin:0;">
-                No interactions were logged yesterday — anything to add?
+                No interactions were logged yesterday. Anything to add?
             </p>
         <?php else : ?>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <?php foreach ($yesterdayActivities as $activity) : ?>
-                    <tr><td style="<?= $rowStyle ?>">
+                    <tr>
+                    <?= $avatarCell(
+                        (int) ($activity['contact_id'] ?? 0),
+                        (string) ($activity['contact_name'] ?? ''),
+                    ) ?>
+                    <td style="<?= $rowStyle ?>">
                         <strong><?= View::e((string) $activity['contact_name']) ?></strong>
-                        — <?= View::e($activityTypes[(string) $activity['activity_type']]
+                        &middot; <?= View::e($activityTypes[(string) $activity['activity_type']]
                             ?? (string) $activity['activity_type']) ?>
                         <span style="color:#8A857C;">
                             (<?= View::e((string) $activity['created_by_name']) ?>)

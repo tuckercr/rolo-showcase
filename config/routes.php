@@ -18,7 +18,9 @@ use App\Controllers\AuthController;
 use App\Controllers\ContactController;
 use App\Controllers\CronController;
 use App\Controllers\DashboardController;
+use App\Controllers\HelpController;
 use App\Controllers\OrganizationController;
+use App\Controllers\PhotoController;
 use App\Controllers\SettingsController;
 use FastRoute\RouteCollector;
 
@@ -41,6 +43,9 @@ return static function (RouteCollector $r): void {
     $r->addRoute('POST', '/contacts/{id:\d+}/snooze', [ContactController::class, 'snooze']);
     $r->addRoute('POST', '/contacts/{id:\d+}/trash', [ContactController::class, 'trash']);
     $r->addRoute('POST', '/contacts/{id:\d+}/restore', [ContactController::class, 'restore']);
+    $r->addRoute('GET', '/contacts/{id:\d+}/photo', [PhotoController::class, 'show']);
+    $r->addRoute('POST', '/contacts/{id:\d+}/photo', [PhotoController::class, 'upload']);
+    $r->addRoute('POST', '/contacts/{id:\d+}/photo/delete', [PhotoController::class, 'delete']);
     $r->addRoute('GET', '/contacts/{id:\d+}', [ContactController::class, 'show']);
     $r->addRoute('GET', '/contacts/{id:\d+}/edit', [ContactController::class, 'edit']);
     $r->addRoute('POST', '/contacts/{id:\d+}', [ContactController::class, 'update']);
@@ -55,6 +60,9 @@ return static function (RouteCollector $r): void {
     $r->addRoute('GET', '/attachments', [AttachmentController::class, 'index']);
     $r->addRoute('GET', '/attachments/{id:\d+}', [AttachmentController::class, 'download']);
     $r->addRoute('POST', '/attachments/{id:\d+}/delete', [AttachmentController::class, 'delete']);
+
+    // Help (how to connect AI assistants over MCP)
+    $r->addRoute('GET', '/help', [HelpController::class, 'index']);
 
     // Settings (cadence rules)
     $r->addRoute('GET', '/settings', [SettingsController::class, 'index']);

@@ -44,7 +44,7 @@ include __DIR__ . '/../layout/header.php';
                             <?= View::e((string) $contact['name']) ?>
                         </td>
                         <td class="px-4 py-2 text-brand-inksoft">
-                            <?= View::e((string) ($contact['organization_name'] ?? '—')) ?>
+                            <?= View::e((string) ($contact['organization_name'] ?? '')) ?>
                         </td>
                         <td class="px-4 py-2 text-brand-inksoft">
                             <?= View::e((string) $contact['relationship_status']) ?>

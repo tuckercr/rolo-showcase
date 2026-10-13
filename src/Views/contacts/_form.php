@@ -37,14 +37,14 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                    autofocus class="<?= $inputClass ?>">
             <?= $fieldError('name') ?>
             <p class="mt-1 text-xs text-brand-muted">
-                Only this field is required — capture now, enrich later.
+                Only this field is required. Capture now, enrich later.
             </p>
         </div>
 
         <div>
             <label class="text-sm font-medium text-brand-inksoft">Organization</label>
             <select name="organization_id" class="<?= $inputClass ?> bg-white">
-                <option value="">— None —</option>
+                <option value="">None</option>
                 <?php foreach ($organizations as $org) : ?>
                     <option value="<?= (int) $org['id'] ?>"
                         <?= (string) ($old['organization_id'] ?? '') === (string) $org['id'] ? 'selected' : '' ?>>
@@ -81,7 +81,7 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
         <div>
             <label class="text-sm font-medium text-brand-inksoft">Relationship type</label>
             <select name="relationship_type" class="<?= $inputClass ?> bg-white">
-                <option value="">— None —</option>
+                <option value="">None</option>
                 <?php foreach ($relationshipTypes as $type) : ?>
                     <option value="<?= View::e($type) ?>"
                         <?= (string) ($old['relationship_type'] ?? '') === $type ? 'selected' : '' ?>>

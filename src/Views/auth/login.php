@@ -12,7 +12,7 @@ use App\Support\View;
  * @var string|null $error
  */
 
-$headTitle = 'Sign in — Rolo';
+$headTitle = 'Sign in · Rolo';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -48,7 +48,7 @@ $headTitle = 'Sign in — Rolo';
             </a>
         <?php elseif (!$isLocal) : ?>
             <p class="mt-6 text-sm text-brand-muted">
-                Google Sign-In isn&rsquo;t configured yet — check back soon.
+                Google Sign-In isn&rsquo;t configured yet. Check back soon.
             </p>
         <?php endif ?>
 

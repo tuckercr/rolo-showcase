@@ -121,7 +121,7 @@ final readonly class Config
 
         if (!is_string($value) || (!$allowEmpty && $value === '')) {
             throw new InvalidArgumentException(
-                sprintf('Missing required environment variable %s — see .env.example.', $key)
+                sprintf('Missing required environment variable %s; see .env.example.', $key)
             );
         }
 
