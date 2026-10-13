@@ -2,15 +2,17 @@
 
 [![CI](https://github.com/tuckercr/rolo-showcase/actions/workflows/ci.yml/badge.svg)](https://github.com/tuckercr/rolo-showcase/actions/workflows/ci.yml)
 
-A CRM I built for a two-person consultancy that was drowning in a Coda
-spreadsheet. The whole idea fits in one sentence: capture a contact in under
-30 seconds, log every interaction, never lose track of who to talk to next.
+Rolo is a small CRM with one job: never let a relationship go cold. Contacts
+take 30 seconds to capture, every interaction gets logged, and a cadence
+engine decides who you owe a follow-up. It's also an **MCP server** (Model
+Context Protocol): AI assistants like Claude and Superhuman plug straight
+into it, and every change they propose waits for human approval. No
+exceptions.
 
 The stack is deliberately boring. PHP 8.4, MariaDB, server-rendered HTML. No
-build pipeline, no SPA. Deploying is copying files to shared hosting. There's
-one deliberately modern piece: the CRM is also an **MCP server** (Model
-Context Protocol), so AI assistants like Claude and Superhuman plug straight
-into it. Every change they propose waits for human approval. No exceptions.
+build pipeline, no SPA. Deploying is copying files to shared hosting. I built
+it for a real two-person consultancy that was drowning in a Coda spreadsheet;
+it runs their pipeline in production today.
 
 > **Note:** this is a public snapshot of a private production repo. Internal
 > docs, deploy scripts, and history are stripped, and the seed data is
