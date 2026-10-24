@@ -126,11 +126,14 @@ final class ContactModel
     public function dueBy(string $today, int $horizonDays = 6): array
     {
         $stmt = $this->db->pdo()->prepare(
-            self::BASE_SELECT . '
+            // Stages flagged hidden_from_follow_ups (Leads by default, see
+            // /settings) never surface on the dashboard or in the email.
+            self::BASE_SELECT . "
             WHERE c.next_touch_date IS NOT NULL
               AND c.deleted_at IS NULL
+              AND COALESCE(st.hidden_from_follow_ups, 0) = 0
               AND c.next_touch_date <= DATE_ADD(:today, INTERVAL :horizon DAY)
-            ORDER BY c.next_touch_date ASC, c.name'
+            ORDER BY c.next_touch_date ASC, c.name"
         );
         $stmt->execute(['today' => $today, 'horizon' => $horizonDays]);
 
@@ -218,6 +221,31 @@ final class ContactModel
             'updated_by' => $userId,
             'id' => $id,
         ]);
+    }
+
+    /**
+     * Relationships going cold: anyone in a live stage who is more than
+     * $lateDays past their follow-up date, or has no follow-up scheduled
+     * at all. Dormant and Closed are excluded on purpose (parked is a
+     * choice, cold is a failure). Coldest first.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function goingCold(string $today, int $lateDays = 30): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            self::BASE_SELECT . "
+            WHERE c.deleted_at IS NULL
+              AND c.relationship_status NOT IN ('Dormant', 'Closed / Not a Fit')
+              AND COALESCE(st.hidden_from_follow_ups, 0) = 0
+              AND ((c.next_touch_date IS NULL
+                        AND c.created_at < DATE_SUB(:today_b, INTERVAL 7 DAY))
+                   OR c.next_touch_date < DATE_SUB(:today, INTERVAL :late_days DAY))
+            ORDER BY (c.last_touch_date IS NULL) DESC, c.last_touch_date ASC, c.name"
+        );
+        $stmt->execute(['today' => $today, 'today_b' => $today, 'late_days' => $lateDays]);
+
+        return $stmt->fetchAll();
     }
 
     /**

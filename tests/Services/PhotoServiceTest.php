@@ -98,6 +98,41 @@ final class PhotoServiceTest extends TestCase
         }
     }
 
+    public function testThumbnailDownsizesAStoredPhoto(): void
+    {
+        $tmp = $this->makeImage(300, 300);
+        $stored = $this->service->store($tmp);
+        unlink($tmp);
+
+        $thumb = $this->service->thumbnail($stored, 56);
+
+        $this->assertNotNull($thumb);
+        $info = getimagesize($thumb);
+        unlink($thumb);
+        $this->assertSame(56, $info[0]);
+        $this->assertSame(56, $info[1]);
+        $this->assertSame('image/jpeg', $info['mime']);
+    }
+
+    public function testThumbnailOfAMissingFileIsNull(): void
+    {
+        $this->assertNull($this->service->thumbnail('does-not-exist.jpg'));
+    }
+
+    public function testValidateRejectsImagesWithTooManyPixels(): void
+    {
+        $tmp = $this->makeImage(4100, 4100);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('too many pixels');
+
+        try {
+            $this->service->validate($tmp, 1000, UPLOAD_ERR_OK);
+        } finally {
+            unlink($tmp);
+        }
+    }
+
     public function testDeleteRemovesTheStoredFile(): void
     {
         $tmp = $this->makeImage(60, 60);

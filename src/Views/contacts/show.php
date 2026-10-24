@@ -30,6 +30,13 @@ $isOverdue = $next !== '' && $next < $today;
 $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm';
 ?>
 
+<?php if ($photoError ?? false) : ?>
+    <p class="mb-4 max-w-2xl text-sm text-brand-red bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+        Couldn&rsquo;t use that image. JPEG, PNG, WebP or GIF up to 8&nbsp;MB,
+        and not more than about 16 megapixels.
+    </p>
+<?php endif ?>
+
 <div class="flex items-start justify-between flex-wrap gap-3">
     <div class="flex items-center gap-4">
         <form id="photo-form" method="post" enctype="multipart/form-data" class="hidden"
@@ -422,10 +429,20 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
             uploadFile(e.dataTransfer.files[0]);
         });
         document.addEventListener('paste', function (e) {
-            const items = e.clipboardData && e.clipboardData.files;
-            if (items && items.length > 0) {
-                uploadFile(items[0]);
+            // Never hijack a paste aimed at a form field, and never
+            // overwrite an existing photo without asking.
+            if (e.target.closest('input, textarea, select, [contenteditable]')) {
+                return;
             }
+            const items = e.clipboardData && e.clipboardData.files;
+            if (!items || items.length === 0) {
+                return;
+            }
+            const hasPhoto = <?= ($contact['photo'] ?? null) !== null ? 'true' : 'false' ?>;
+            if (hasPhoto && !confirm('Replace the profile photo with the pasted image?')) {
+                return;
+            }
+            uploadFile(items[0]);
         });
     })();
 </script>

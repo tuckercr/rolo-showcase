@@ -19,6 +19,7 @@ use App\Support\View;
  */
 
 $photoCids = $photoCids ?? [];
+$goingColdCount = (int) ($goingColdCount ?? 0);
 
 $avatarCell = static function (int $contactId, string $name) use ($photoCids): string {
     $cell = '<td style="width:40px;padding:8px 0 8px 12px;border-bottom:1px solid #DCD3C2;'
@@ -119,6 +120,14 @@ $contactRows = static function (array $contacts) use ($appUrl, $rowStyle, $avata
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <?= $contactRows($overdue) ?>
             </table>
+        <?php endif ?>
+
+        <?php if ($goingColdCount > 0) : ?>
+            <p style="margin:10px 0 0;font-size:12px;color:#8A857C;">
+                Plus <?= $goingColdCount ?> going cold (30+ days past their follow-up).
+                They're at the bottom of the
+                <a href="<?= View::e($appUrl) ?>" style="color:#C1272D;">dashboard</a>.
+            </p>
         <?php endif ?>
 
         <h2 style="<?= $headingStyle ?>color:#5A5650;">

@@ -37,7 +37,10 @@ final class ActivityController extends Controller
         }
 
         $activityType = (string) ($_POST['activity_type'] ?? '');
-        $activityDate = (string) ($_POST['activity_date'] ?? '');
+        // No date posted (the dashboard quick-log) means today, computed at
+        // submit time so a dashboard left open past midnight stays correct.
+        $activityDate = trim((string) ($_POST['activity_date'] ?? ''));
+        $activityDate = $activityDate === '' ? $this->todayLocal()->format('Y-m-d') : $activityDate;
         $summary = trim((string) ($_POST['summary'] ?? ''));
         $followUpNeeded = ($_POST['follow_up_needed'] ?? '') === '1';
         $followUpDate = trim((string) ($_POST['follow_up_date'] ?? ''));
@@ -107,7 +110,10 @@ final class ActivityController extends Controller
 
         $contacts->recordTouch($contactId, $newLastTouch, $nextTouchDate, $this->auth->id());
 
-        return $this->redirect('/contacts/' . $contactId);
+        // Dashboard quick-log sends return_to=/ to stay on the dashboard.
+        $back = ($_POST['return_to'] ?? '') === '/' ? '/' : '/contacts/' . $contactId;
+
+        return $this->redirect($back);
     }
 
     /**

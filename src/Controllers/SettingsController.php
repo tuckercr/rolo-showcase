@@ -57,6 +57,17 @@ final class SettingsController extends Controller
             $changes[] = static fn() => $rules->saveForStatus($stageName, $type, $days, $userId);
         }
 
+        $hiddenIds = array_map('intval', array_keys(
+            is_array($_POST['stage_hidden'] ?? null) ? $_POST['stage_hidden'] : []
+        ));
+        $stageModel = new StageModel($this->db);
+
+        foreach ($stages as $stage) {
+            $stageId = (int) $stage['id'];
+            $hidden = in_array($stageId, $hiddenIds, true);
+            $changes[] = static fn() => $stageModel->setHidden($stageId, $hidden);
+        }
+
         if ($errors !== []) {
             // Apply nothing when any row is invalid — all-or-nothing keeps
             // the rule set coherent.
@@ -75,6 +86,7 @@ final class SettingsController extends Controller
         $this->requireValidCsrf();
 
         (new ReminderRuleModel($this->db))->resetToDefaults($this->auth->id());
+        (new StageModel($this->db))->resetHiddenToDefault();
 
         return $this->redirect('/settings?saved=1');
     }

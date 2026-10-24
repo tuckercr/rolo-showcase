@@ -114,7 +114,11 @@ final class ContactController extends Controller
             userId: $this->auth->id(),
         );
 
-        return $this->redirect('/contacts/' . (int) $contact['id']);
+        // The dashboard's inline snooze sends return_to=/ so the review
+        // flow stays on the review screen.
+        $back = ($_POST['return_to'] ?? '') === '/' ? '/' : '/contacts/' . (int) $contact['id'];
+
+        return $this->redirect($back);
     }
 
     public function trash(array $vars): string
@@ -178,6 +182,7 @@ final class ContactController extends Controller
             'activityError' => ($_GET['error'] ?? '') === 'activity',
             'attachmentError' => ($_GET['error'] ?? '') === 'attachment',
             'storageError' => ($_GET['error'] ?? '') === 'storage',
+            'photoError' => ($_GET['error'] ?? '') === 'photo',
             'attachmentsByActivity' => (new AttachmentModel($this->db))
                 ->forContactByActivity((int) $contact['id']),
             'allowedTypesLabel' => AttachmentService::allowedExtensionsLabel(),
