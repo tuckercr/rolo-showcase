@@ -87,7 +87,7 @@ final class DailySummaryService
      */
     private function photoEmbeds(array $data): array
     {
-        $photos = new PhotoService(dirname(__DIR__, 2) . '/storage/photos');
+        $photos = PhotoService::forApp();
         $cids = [];
         $files = [];
 
@@ -141,11 +141,17 @@ final class DailySummaryService
         $today = $nowLocal->format('Y-m-d');
         $yesterday = $nowLocal->modify('-1 day')->format('Y-m-d');
 
-        $due = (new ContactModel($this->db))->dueBy($today, 0);
+        $contacts = new ContactModel($this->db);
+        $due = $contacts->dueBy($today, 0);
+        $goingCold = $contacts->goingCold($today);
+        $coldIds = array_map(static fn(array $c): int => (int) $c['id'], $goingCold);
 
+        // Same split as the dashboard: going-cold contacts leave the
+        // Overdue list so the email's counts match what she sees there.
         $overdue = array_values(array_filter(
             $due,
-            static fn(array $c): bool => (string) $c['next_touch_date'] < $today,
+            static fn(array $c): bool => (string) $c['next_touch_date'] < $today
+                && !in_array((int) $c['id'], $coldIds, true),
         ));
         $dueToday = array_values(array_filter(
             $due,
@@ -156,6 +162,7 @@ final class DailySummaryService
             'appUrl' => $this->config->appUrl !== '' ? $this->config->appUrl : 'https://crm.example.com',
             'overdue' => $overdue,
             'dueToday' => $dueToday,
+            'goingColdCount' => count($goingCold),
             'yesterdayActivities' => (new ActivityModel($this->db))->onDate($yesterday),
             'activityTypes' => ActivityModel::DISPLAY_TYPES,
             'todayLabel' => $nowLocal->format('l, F j'),

@@ -63,6 +63,7 @@ final class DailySummaryServiceTest extends TestCase
             'todayLabel' => 'Thursday, July 9',
             'yesterdayLabel' => 'Wednesday',
             'photoCids' => [7 => 'photo-c7'],
+            'goingColdCount' => 3,
         ]);
 
         $this->assertStringContainsString('Have you logged what you did yesterday?', $html);
@@ -86,6 +87,7 @@ final class DailySummaryServiceTest extends TestCase
         // Jane (id 7) has an embedded photo; Sam falls back to initials.
         $this->assertStringContainsString('cid:photo-c7', $html);
         $this->assertStringContainsString('>SS</span>', $html);
+        $this->assertStringContainsString('Plus 3 going cold', $html);
     }
 
     public function testEmailTemplateEmptyStatesNudgeTowardLogging(): void
@@ -106,6 +108,7 @@ final class DailySummaryServiceTest extends TestCase
 
         // An empty Due today section is hidden entirely, not shown as empty.
         $this->assertStringNotContainsString('Due today', $html);
+        $this->assertStringNotContainsString('going cold', $html);
     }
 
     public function testEmailEscapesUserContent(): void

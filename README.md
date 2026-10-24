@@ -25,8 +25,10 @@ then approves or rejects. Agents never touch the CRM directly.
 
 ![Approvals](screenshots/approvals.png)
 
-**Dashboard.** The Monday review: overdue and due this week, each contact
-with a note saying what actually needs doing.
+**Dashboard.** The Monday review: overdue, due this week, and a going-cold
+section for anyone 30+ days past their follow-up or with nothing scheduled
+at all. Each contact carries a note saying what actually needs doing, and
+every row can log a touch or snooze inline without leaving the page.
 
 ![Dashboard](screenshots/dashboard.png)
 
@@ -49,6 +51,12 @@ detail" so you remember the person, not just the pipeline stage.
 **Organizations.** Grouped view with per-org contact counts.
 
 ![Organizations](screenshots/organizations.png)
+
+**Settings.** The cadence engine is data, not code: per-stage reminder rules
+with one-click reset, and a checkbox per stage to keep it off the dashboard
+and the daily email (Leads and Closed / Not a Fit by default).
+
+![Settings](screenshots/settings.png)
 
 ## The MCP integration
 
@@ -92,17 +100,24 @@ instructions: **reads are live, writes never land directly.**
   database: fixed days, cadence from last touch, or business days. Rules are
   editable in a settings UI with one-click reset. An explicit "follow up by
   Saturday" always beats the cadence, and per-contact overrides beat the
-  stage default.
+  stage default. Each stage also has a visibility checkbox: hidden stages
+  keep scheduling normally but stay off the dashboard and the daily email,
+  so a bulk-imported Leads list never drowns out real follow-ups.
 - **A dashboard that matches how the user actually works.** Overdue plus due
-  this week, the real Monday review. Overdue is always derived
-  (`next_touch_date < today`), never stored, so it can't drift.
+  this week, the real Monday review, and a going-cold section that catches
+  what date-sorted lists miss: contacts 30+ days past their follow-up or
+  with no follow-up scheduled at all. Logging and snoozing happen inline on
+  the row, so clearing the morning list never means leaving the page.
+  Overdue is always derived (`next_touch_date < today`), never stored, so it
+  can't drift.
 - **A daily summary email.** Every morning at 9 AM Eastern: due today first
   (hidden entirely when empty), then overdue, then what was logged
   yesterday, with tiny inline photo thumbnails (CID attachments, since the
   photo route is auth-gated and Gmail strips data URIs) and initials
-  fallbacks. A GitHub Actions schedule hits a token-guarded endpoint; the
-  app enforces local send time and once-per-day semantics, so DST is
-  handled and retries are safe.
+  fallbacks. A Cloudflare Worker cron hits a token-guarded endpoint, with a
+  GitHub Actions schedule as backup; the app enforces local send time and
+  once-per-day semantics, so DST is handled, retries are safe, and the
+  redundant trigger is free.
 - **An interaction history built for real use.** Edit in place with "edited
   by" attribution, editable dates, delete, file attachments (allowlisted by
   extension AND sniffed content type, stored outside the web root under
@@ -136,7 +151,7 @@ src/Services/        ReminderService (the rules engine), ProposalService
                      (validate/queue/apply agent writes), McpProtocol,
                      GoogleAuthService, DailySummaryService, AttachmentService
 src/Views/           PHP templates only; escaping helper on all dynamic output
-src/Support/         Config, Database, Session, Csrf, Auth, Mailer, Migrator
+src/Support/         Config, Database, Session, Csrf, Auth, Mailer, Dates, Migrator
 database/migrations/ ordered .sql files, forward-only, tracked in a table
 tests/               PHPUnit, focused on the logic most likely to break
 ```
@@ -176,7 +191,7 @@ Engineering choices I'd defend:
 | Frontend  | Server-rendered PHP views, Tailwind CSS via CDN     |
 | Email     | SMTP (STARTTLS) or `mail()` fallback                |
 | CI        | GitHub Actions: `php -l`, PHP_CodeSniffer (PSR-12), PHPUnit |
-| Scheduler | GitHub Actions cron hitting a token-guarded endpoint |
+| Scheduler | Cloudflare Worker cron hitting a token-guarded endpoint (GitHub Actions as backup) |
 
 ## Running locally
 

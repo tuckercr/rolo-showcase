@@ -37,9 +37,19 @@ final class PhotoController extends Controller
             return '';
         }
 
+        // The stored name is random per upload, so it IS the content hash.
+        $etag = '"' . basename((string) $photo) . '"';
+        header('Cache-Control: private, max-age=86400');
+        header('ETag: ' . $etag);
+
+        if (($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === $etag) {
+            http_response_code(304);
+
+            return '';
+        }
+
         header('Content-Type: image/jpeg');
         header('Content-Length: ' . (string) filesize($path));
-        header('Cache-Control: private, max-age=86400');
         header('X-Content-Type-Options: nosniff');
         readfile($path);
 

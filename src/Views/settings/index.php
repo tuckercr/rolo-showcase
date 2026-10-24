@@ -46,6 +46,13 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
             Changes here apply the next time an interaction is logged or a stage changes;
             already-scheduled dates aren&rsquo;t recalculated.
         </p>
+        <p class="mt-2 text-xs text-brand-muted">
+            Hidden stages never appear on the dashboard or in the morning email.
+            Contacts in them keep their history and stay on the Contacts list;
+            they just stop generating follow-up reminders. Leads and
+            Closed / Not a Fit are hidden by default. Careful with Dormant:
+            hiding it silences the six-month check-ins too.
+        </p>
     </div>
 
     <?php if ($saved) : ?>
@@ -63,6 +70,9 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
                     <th class="px-4 py-2 font-medium">Reminder</th>
                     <th class="px-4 py-2 font-medium w-24">Days</th>
                     <th class="px-4 py-2 font-medium">Default</th>
+                    <th class="px-4 py-2 font-medium whitespace-nowrap">
+                        Hide from dashboard &amp; email
+                    </th>
                 </tr>
             </thead>
             <tbody>
@@ -98,12 +108,17 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
                         </td>
                         <td class="px-4 py-3">
                             <input type="number" name="value_days[<?= $stageId ?>]"
-                                   min="1" max="<?= $maxDays ?>"
+                                   min="0" max="<?= $maxDays ?>"
                                    value="<?= $rule === null ? '' : (int) $rule['value_days'] ?>"
                                    class="border border-brand-sand rounded-lg px-2 py-1.5 text-sm w-20">
                         </td>
                         <td class="px-4 py-3 text-xs text-brand-muted">
                             <?= View::e($defaultLabel) ?>
+                        </td>
+                        <td class="px-4 py-3 text-center">
+                            <input type="checkbox" name="stage_hidden[<?= $stageId ?>]" value="1"
+                                   class="rounded"
+                                   <?= (int) ($stage['hidden_from_follow_ups'] ?? 0) === 1 ? 'checked' : '' ?>>
                         </td>
                     </tr>
                 <?php endforeach ?>
