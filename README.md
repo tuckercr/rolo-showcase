@@ -16,6 +16,11 @@ in production since July 2026.
 > **Note:** this is a public snapshot of a private production repo. Internal
 > docs, deploy scripts, and history are stripped, and the seed data is
 > genericized. The real thing runs in production every day.
+>
+> If Rolo looks useful to you, take it: it's Apache-2.0 and you're welcome
+> to the code. And if you'd like help adapting it, or want something like
+> it built for you, email me at [colin@fangjet.com](mailto:colin@fangjet.com)
+> and I'd be happy to chat.
 
 ## Screenshots
 
