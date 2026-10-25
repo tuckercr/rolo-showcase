@@ -11,6 +11,22 @@ jobs:
     name: Lint, syntax-check, and test
     runs-on: ubuntu-latest
 
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_DATABASE: rolo_test
+          MARIADB_USER: rolo_test
+          MARIADB_PASSWORD: rolo_test
+          MARIADB_RANDOM_ROOT_PASSWORD: "1"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,3 +58,10 @@ jobs:
 
       - name: Unit tests (PHPUnit)
         run: vendor/bin/phpunit
+        env:
+          # Database-backed tests (tests/Models, tests/Database) run against
+          # the MariaDB service; without these they'd be skipped.
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: rolo_test
+          TEST_DB_USER: rolo_test
+          TEST_DB_PASSWORD: rolo_test
