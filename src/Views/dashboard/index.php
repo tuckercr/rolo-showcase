@@ -103,7 +103,7 @@ $rowClick = static fn(int $id): string => "if (!event.target.closest("
                             <th class="px-4 py-2 font-medium">Organization</th>
                             <th class="px-4 py-2 font-medium">Stage</th>
                             <th class="px-4 py-2 font-medium whitespace-nowrap w-36">Next follow-up</th>
-                            <th class="px-4 py-2"></th>
+                            <th class="px-4 py-2"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -189,7 +189,7 @@ $rowClick = static fn(int $id): string => "if (!event.target.closest("
                         <th class="px-4 py-2 font-medium">Organization</th>
                         <th class="px-4 py-2 font-medium">Stage</th>
                         <th class="px-4 py-2 font-medium whitespace-nowrap w-36">Last contacted</th>
-                        <th class="px-4 py-2"></th>
+                        <th class="px-4 py-2"><span class="sr-only">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody>

@@ -11,7 +11,9 @@ into it, and every change they propose waits for human approval.
 Plain PHP 8.4, MariaDB, and server-rendered HTML. No build step, no SPA,
 nothing to babysit. Deploys are a file copy to shared hosting. It replaced a
 Coda spreadsheet at a real two-person consultancy and has run their pipeline
-in production since July 2026.
+in production since July 2026. Lighthouse (desktop) scores 96-100 for
+performance, 100 for accessibility, and 100 for best practices across the
+login page, dashboard, and contact pages.
 
 > **Note:** this is a public snapshot of a private production repo. Internal
 > docs, deploy scripts, and history are stripped, and the seed data is

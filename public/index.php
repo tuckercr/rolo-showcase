@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+// Under the PHP dev server there is no Apache to serve real files directly
+// (.htaccess RewriteCond !-f), so hand them back before touching the router.
+if (PHP_SAPI === 'cli-server') {
+    $staticPath = (string) parse_url((string) $_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    if ($staticPath !== '/' && is_file(__DIR__ . $staticPath)) {
+        return false;
+    }
+}
+
 use App\Models\UserModel;
 use App\Support\Auth;
 use App\Support\Database;

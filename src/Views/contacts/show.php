@@ -254,21 +254,23 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                 <?= Csrf::field() ?>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                        <label class="text-sm font-medium text-brand-inksoft">Type</label>
-                        <select name="activity_type" class="<?= $inputClass ?> bg-white">
+                        <label for="log-type" class="text-sm font-medium text-brand-inksoft">Type</label>
+                        <select id="log-type" name="activity_type" class="<?= $inputClass ?> bg-white">
                             <?php foreach ($activityTypes as $typeValue => $typeLabel) : ?>
                                 <option value="<?= View::e($typeValue) ?>"><?= View::e($typeLabel) ?></option>
                             <?php endforeach ?>
                         </select>
                     </div>
                     <div>
-                        <label class="text-sm font-medium text-brand-inksoft">Date</label>
-                        <input type="date" name="activity_date" value="<?= View::e($today) ?>"
+                        <label for="log-date" class="text-sm font-medium text-brand-inksoft">Date</label>
+                        <input type="date" id="log-date" name="activity_date" value="<?= View::e($today) ?>"
                                class="<?= $inputClass ?>">
                     </div>
                     <div class="sm:col-span-2">
-                        <label class="text-sm font-medium text-brand-inksoft">What happened?</label>
-                        <textarea name="summary" rows="4" class="<?= $inputClass ?>"
+                        <label for="log-summary" class="text-sm font-medium text-brand-inksoft">
+                            What happened?
+                        </label>
+                        <textarea id="log-summary" name="summary" rows="4" class="<?= $inputClass ?>"
                                   placeholder="Quick summary of the interaction…"></textarea>
                     </div>
                     <div class="sm:col-span-2 flex items-center gap-4">
@@ -283,12 +285,14 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                     </div>
                     <div id="fu-note-log" class="sm:col-span-2 hidden">
                         <input type="text" name="follow_up_note" maxlength="255"
-                               class="<?= $inputClass ?>"
+                               class="<?= $inputClass ?>" aria-label="What needs doing?"
                                placeholder="What needs doing? e.g. Send the proposal draft">
                     </div>
                     <div class="sm:col-span-2">
-                        <label class="text-sm font-medium text-brand-inksoft">Attach files</label>
-                        <input type="file" name="attachments[]" multiple
+                        <label for="log-files" class="text-sm font-medium text-brand-inksoft">
+                            Attach files
+                        </label>
+                        <input type="file" id="log-files" name="attachments[]" multiple
                                class="mt-1 block w-full text-sm text-brand-muted">
                         <p class="mt-1 text-xs text-brand-muted">
                             Up to 5 files, 10&nbsp;MB each (<?= View::e($allowedTypesLabel) ?>).
