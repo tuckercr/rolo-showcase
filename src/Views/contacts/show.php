@@ -1,0 +1,454 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Support\Csrf;
+use App\Support\View;
+
+/**
+ * @var array<string, mixed> $contact
+ * @var list<string> $contactTags
+ * @var list<array<string, mixed>> $activities
+ * @var array<string, string> $activityTypes loggable types (form select)
+ * @var array<string, string> $historyTypes display labels incl. system entries
+ * @var string $today
+ * @var bool $activityError
+ * @var bool $attachmentError
+ * @var bool $storageError
+ * @var array<int, list<array<string, mixed>>> $attachmentsByActivity keyed by activity id
+ * @var string $allowedTypesLabel
+ * @var array<int, string> $snoozeOptions days => label
+ * @var int|null $queueIndex 0-based position in the follow-up queue, null if not queued
+ * @var int $queueTotal
+ * @var array<string, mixed>|null $queueNext the next queued contact, if any
+ */
+
+include __DIR__ . '/../layout/header.php';
+
+$next = (string) ($contact['next_touch_date'] ?? '');
+$isOverdue = $next !== '' && $next < $today;
+$inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm';
+?>
+
+<?php if ($photoError ?? false) : ?>
+    <p class="mb-4 max-w-2xl text-sm text-brand-red bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+        Couldn&rsquo;t use that image. JPEG, PNG, WebP or GIF up to 8&nbsp;MB,
+        and not more than about 16 megapixels.
+    </p>
+<?php endif ?>
+
+<div class="flex items-start justify-between flex-wrap gap-3">
+    <div class="flex items-center gap-4">
+        <form id="photo-form" method="post" enctype="multipart/form-data" class="hidden"
+              action="/contacts/<?= (int) $contact['id'] ?>/photo">
+            <?= Csrf::field() ?>
+            <input type="file" name="photo" id="photo-input" accept="image/*"
+                   onchange="this.form.submit()">
+        </form>
+        <div id="avatar-drop" class="relative group cursor-pointer shrink-0"
+             title="Click, drop, or paste an image to set the photo"
+             onclick="document.getElementById('photo-input').click()">
+            <?php
+            $avatar = ['contact' => $contact, 'size' => 'w-20 h-20', 'text' => 'text-2xl'];
+            include __DIR__ . '/../partials/avatar.php';
+            ?>
+            <span class="absolute inset-0 hidden group-hover:flex items-center justify-center
+                         rounded-full bg-black/45 text-white text-xs font-medium">
+                <?= ($contact['photo'] ?? null) !== null ? 'Replace' : 'Add photo' ?>
+            </span>
+        </div>
+    <div>
+        <h1 class="font-serif text-3xl text-brand-ink"><?= View::e((string) $contact['name']) ?></h1>
+        <p class="mt-1 text-sm text-brand-muted">
+            <?= View::e((string) ($contact['title'] ?? '')) ?>
+            <?php if (($contact['title'] ?? null) !== null && ($contact['organization_name'] ?? null) !== null) : ?>
+                &middot;
+            <?php endif ?>
+            <?php if (($contact['organization_id'] ?? null) !== null) : ?>
+                <a href="/organizations/<?= (int) $contact['organization_id'] ?>"
+                   class="hover:text-brand-red hover:underline">
+                    <?= View::e((string) ($contact['organization_name'] ?? '')) ?>
+                </a>
+            <?php endif ?>
+        </p>
+        <?php if (($contact['photo'] ?? null) !== null) : ?>
+            <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/photo/delete"
+                  onsubmit="return confirm('Remove this photo?');">
+                <?= Csrf::field() ?>
+                <button type="submit"
+                        class="mt-1 text-xs text-brand-muted hover:text-brand-red underline">
+                    Remove photo
+                </button>
+            </form>
+        <?php endif ?>
+    </div>
+    </div>
+    <div class="flex items-center gap-2">
+        <button type="button" id="back-nav" onclick="history.back()" hidden
+                title="Back"
+                class="text-sm text-brand-inksoft border border-brand-sand hover:bg-brand-cream2
+                       px-3 py-2 rounded-lg">&larr;</button>
+        <?php if ($queueIndex !== null) : ?>
+            <span class="text-xs text-brand-muted">
+                Queue <?= $queueIndex + 1 ?> of <?= $queueTotal ?>
+            </span>
+            <?php if ($queueNext !== null) : ?>
+                <a href="/contacts/<?= (int) $queueNext['id'] ?>"
+                   title="Next in queue: <?= View::e((string) $queueNext['name']) ?>"
+                   class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-2
+                          rounded-lg">&rarr;</a>
+            <?php else : ?>
+                <a href="/" title="Queue done, back to dashboard"
+                   class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-2
+                          rounded-lg">&rarr;</a>
+            <?php endif ?>
+        <?php endif ?>
+        <a href="/contacts/<?= (int) $contact['id'] ?>/edit"
+           class="text-sm bg-brand-ink hover:bg-brand-red text-white px-4 py-2 rounded-lg">Edit</a>
+        <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/trash"
+              onsubmit="return confirm('Move <?= View::e((string) $contact['name']) ?> to the trash?\n'
+                  + 'Nothing is lost. You can restore from Contacts > Trash.');">
+            <?= Csrf::field() ?>
+            <button type="submit" title="Move to trash" aria-label="Move to trash"
+                    class="text-brand-muted hover:text-brand-inksoft hover:bg-brand-cream2
+                           p-1 rounded-lg">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"
+                     stroke-linecap="round" stroke-linejoin="round" class="w-7 h-7"
+                     aria-hidden="true">
+                    <path d="M5 6.2 L14.6 3.8" />
+                    <path d="M9.1 3.6 L11.1 3.1" />
+                    <path d="M5.6 8.4 h8.8 L13.2 16.5 a1.2 1.2 0 0 1 -1.2 1 H8 a1.2 1.2 0 0
+                             1 -1.2 -1 Z" />
+                    <path d="M8.3 10.8 L8.6 15" />
+                    <path d="M11.7 10.8 L11.4 15" />
+                </svg>
+            </button>
+        </form>
+    </div>
+</div>
+
+<?php if (($contact['human_detail'] ?? null) !== null) : ?>
+    <p class="mt-4 bg-brand-cream2 border border-brand-sand text-brand-inksoft text-sm rounded-lg px-4 py-2">
+        <?= View::e((string) $contact['human_detail']) ?>
+    </p>
+<?php endif ?>
+
+<?php if ($contactTags !== []) : ?>
+    <p class="mt-3">
+        <?php foreach ($contactTags as $tagName) : ?>
+            <a href="/contacts?tag=<?= View::e(rawurlencode($tagName)) ?>"
+               class="inline-block mr-1.5 mb-1 text-xs bg-brand-cream2 border border-brand-sand
+                      text-brand-inksoft rounded-full px-2.5 py-0.5 hover:border-brand-red">
+                <?= View::e($tagName) ?>
+            </a>
+        <?php endforeach ?>
+    </p>
+<?php endif ?>
+
+<div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="md:col-span-1 space-y-4">
+        <div class="bg-white rounded-lg shadow p-5 text-sm space-y-3">
+            <div>
+                <p class="text-xs uppercase tracking-wide text-brand-muted">Stage</p>
+                <p class="text-brand-ink font-medium"><?= View::e((string) $contact['relationship_status']) ?></p>
+            </div>
+            <div>
+                <p class="text-xs uppercase tracking-wide text-brand-muted">Next follow-up</p>
+                <p class="<?= $isOverdue ? 'text-brand-red font-semibold' : 'text-brand-ink' ?>">
+                    <?= View::e($next === '' ? 'No reminder' : $next) ?>
+                    <?= $isOverdue ? ' (overdue)' : '' ?>
+                </p>
+                <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/snooze"
+                      id="snooze-form" class="mt-1.5 flex items-center gap-1.5">
+                    <?= Csrf::field() ?>
+                    <select name="days" title="How long to snooze"
+                            class="text-xs text-brand-inksoft border border-brand-sand rounded
+                                   px-1.5 py-1 bg-white">
+                        <?php foreach ($snoozeOptions as $days => $label) : ?>
+                            <option value="<?= (int) $days ?>" <?= $days === 7 ? 'selected' : '' ?>>
+                                <?= View::e($label) ?>
+                            </option>
+                        <?php endforeach ?>
+                    </select>
+                    <button type="submit"
+                            class="text-xs text-brand-inksoft border border-brand-sand
+                                   hover:bg-brand-cream2 rounded px-2.5 py-1"
+                            title="Set the next follow-up to today + the chosen length">
+                        Snooze
+                    </button>
+                </form>
+            </div>
+            <div>
+                <p class="text-xs uppercase tracking-wide text-brand-muted">Last contacted</p>
+                <p class="text-brand-ink"><?= View::e((string) ($contact['last_touch_date'] ?? 'Never')) ?></p>
+            </div>
+            <?php if (($contact['cadence_days_override'] ?? null) !== null) : ?>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-brand-muted">Cadence override</p>
+                    <p class="text-brand-ink">every <?= (int) $contact['cadence_days_override'] ?> days</p>
+                </div>
+            <?php endif ?>
+            <?php if (($contact['relationship_type'] ?? null) !== null) : ?>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-brand-muted">Relationship type</p>
+                    <p class="text-brand-ink">
+                        <?= View::e(ucwords(str_replace('_', ' / ', (string) $contact['relationship_type']))) ?>
+                    </p>
+                </div>
+            <?php endif ?>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-5 text-sm space-y-3">
+            <?php if (($contact['email'] ?? null) !== null) : ?>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-brand-muted">Email</p>
+                    <a href="mailto:<?= View::e((string) $contact['email']) ?>"
+                       class="text-brand-red hover:underline"><?= View::e((string) $contact['email']) ?></a>
+                </div>
+            <?php endif ?>
+            <?php if (($contact['phone'] ?? null) !== null) : ?>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-brand-muted">Phone</p>
+                    <p class="text-brand-ink"><?= View::e((string) $contact['phone']) ?></p>
+                </div>
+            <?php endif ?>
+            <?php if (($contact['linkedin_url'] ?? null) !== null) : ?>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-brand-muted">LinkedIn</p>
+                    <a href="<?= View::e((string) $contact['linkedin_url']) ?>" target="_blank" rel="noopener"
+                       class="text-brand-red hover:underline break-all">
+                        <?= View::e((string) $contact['linkedin_url']) ?>
+                    </a>
+                </div>
+            <?php endif ?>
+            <p class="text-xs text-brand-muted pt-2 border-t">
+                Added by <?= View::e((string) $contact['created_by_name']) ?> &middot;
+                last updated by <?= View::e((string) $contact['updated_by_name']) ?>
+            </p>
+        </div>
+    </div>
+
+    <div class="md:col-span-2 space-y-6">
+        <div class="bg-white rounded-lg shadow p-5">
+            <h2 class="text-sm font-semibold text-brand-inksoft">Log an interaction</h2>
+            <?php if ($activityError) : ?>
+                <p class="mt-2 text-xs text-brand-red">
+                    Couldn&rsquo;t save that. Check the type and dates and try again.
+                </p>
+            <?php endif ?>
+            <?php if ($attachmentError) : ?>
+                <p class="mt-2 text-xs text-brand-red">
+                    Attachment refused: up to 5 files, 10&nbsp;MB each
+                    (<?= View::e($allowedTypesLabel) ?>). Nothing was saved.
+                </p>
+            <?php endif ?>
+            <?php if ($storageError) : ?>
+                <p class="mt-2 text-xs text-brand-red">
+                    Couldn&rsquo;t save your file. The interaction was logged, but the
+                    server had a storage problem. Try attaching it again from the
+                    interaction&rsquo;s Edit link below.
+                </p>
+            <?php endif ?>
+            <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/activities"
+                  enctype="multipart/form-data" class="mt-3">
+                <?= Csrf::field() ?>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="log-type" class="text-sm font-medium text-brand-inksoft">Type</label>
+                        <select id="log-type" name="activity_type" class="<?= $inputClass ?> bg-white">
+                            <?php foreach ($activityTypes as $typeValue => $typeLabel) : ?>
+                                <option value="<?= View::e($typeValue) ?>"><?= View::e($typeLabel) ?></option>
+                            <?php endforeach ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="log-date" class="text-sm font-medium text-brand-inksoft">Date</label>
+                        <input type="date" id="log-date" name="activity_date" value="<?= View::e($today) ?>"
+                               class="<?= $inputClass ?>">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label for="log-summary" class="text-sm font-medium text-brand-inksoft">
+                            What happened?
+                        </label>
+                        <textarea id="log-summary" name="summary" rows="4" class="<?= $inputClass ?>"
+                                  placeholder="Quick summary of the interaction…"></textarea>
+                    </div>
+                    <div class="sm:col-span-2 flex items-center gap-4">
+                        <label class="text-sm text-brand-inksoft flex items-center gap-2">
+                            <input type="checkbox" name="follow_up_needed" value="1" class="rounded"
+                                   onchange="document.getElementById('fu-note-log')
+                                       .classList.toggle('hidden', !this.checked)">
+                            Follow-up needed
+                        </label>
+                        <input type="date" name="follow_up_date" class="border border-brand-sand
+                               rounded-lg px-3 py-1.5 text-sm" title="Follow-up date (optional)">
+                    </div>
+                    <div id="fu-note-log" class="sm:col-span-2 hidden">
+                        <input type="text" name="follow_up_note" maxlength="255"
+                               class="<?= $inputClass ?>" aria-label="What needs doing?"
+                               placeholder="What needs doing? e.g. Send the proposal draft">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label for="log-files" class="text-sm font-medium text-brand-inksoft">
+                            Attach files
+                        </label>
+                        <input type="file" id="log-files" name="attachments[]" multiple
+                               class="mt-1 block w-full text-sm text-brand-muted">
+                        <p class="mt-1 text-xs text-brand-muted">
+                            Up to 5 files, 10&nbsp;MB each (<?= View::e($allowedTypesLabel) ?>).
+                        </p>
+                    </div>
+                </div>
+                <button type="submit"
+                        class="mt-4 bg-brand-red hover:bg-brand-reddark text-white rounded-lg px-5 py-2
+                               text-sm font-medium">
+                    Log it
+                </button>
+                <span class="ml-2 text-xs text-brand-muted">
+                    Updates the last contacted date and reschedules the follow-up. A date
+                    you set here wins over the stage cadence.
+                </span>
+            </form>
+        </div>
+
+        <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-brand-inksoft">
+                History (<?= count($activities) ?>)
+            </h2>
+            <?php if ($activities === []) : ?>
+                <p class="mt-2 text-sm text-brand-muted">No interactions logged yet.</p>
+            <?php else : ?>
+                <ul class="mt-2 space-y-2">
+                    <?php foreach ($activities as $activity) : ?>
+                        <li class="bg-white rounded-lg shadow px-4 py-3 text-sm">
+                            <?php $isSnooze = (string) $activity['activity_type'] === 'snoozed'; ?>
+                            <div class="flex items-center justify-between flex-wrap gap-2">
+                                <span class="font-medium text-brand-ink">
+                                    <?= View::e($historyTypes[(string) $activity['activity_type']]
+                                        ?? (string) $activity['activity_type']) ?>
+                                </span>
+                                <span class="text-brand-muted text-xs">
+                                    <?= View::e((string) $activity['activity_date']) ?>
+                                    &middot; logged by <?= View::e((string) $activity['created_by_name']) ?>
+                                    <?php if (($activity['updated_by_name'] ?? null) !== null) : ?>
+                                        &middot; edited by <?= View::e((string) $activity['updated_by_name']) ?>
+                                    <?php endif ?>
+                                    <?php if (!$isSnooze) : ?>
+                                        &middot; <a href="/activities/<?= (int) $activity['id'] ?>/edit"
+                                                    class="text-brand-red hover:underline">Edit</a>
+                                    <?php endif ?>
+                                </span>
+                            </div>
+                            <?php if ((string) ($activity['summary'] ?? '') !== '') : ?>
+                                <p class="mt-1 text-brand-inksoft"><?= View::e((string) $activity['summary']) ?></p>
+                            <?php endif ?>
+                            <?php $activityAttachments = $attachmentsByActivity[(int) $activity['id']] ?? []; ?>
+                            <?php if ($activityAttachments !== []) : ?>
+                                <p class="mt-1.5">
+                                    <?php foreach ($activityAttachments as $att) : ?>
+                                        <a href="/attachments/<?= (int) $att['id'] ?>"
+                                           class="inline-block mr-3 text-xs text-brand-red hover:underline">
+                                            &#128206; <?= View::e((string) $att['original_name']) ?>
+                                        </a>
+                                    <?php endforeach ?>
+                                </p>
+                            <?php endif ?>
+                            <?php if ((int) $activity['follow_up_needed'] === 1) : ?>
+                                <p class="mt-1 text-xs text-brand-red">
+                                    Follow-up needed
+                                    <?php if (($activity['follow_up_date'] ?? null) !== null) : ?>
+                                        by <?= View::e((string) $activity['follow_up_date']) ?>
+                                    <?php endif ?>
+                                    <?php if (($activity['follow_up_note'] ?? '') !== '') : ?>
+                                        <span class="text-brand-inksoft">
+                                            &middot; <?= View::e((string) $activity['follow_up_note']) ?>
+                                        </span>
+                                    <?php endif ?>
+                                </p>
+                            <?php endif ?>
+                        </li>
+                    <?php endforeach ?>
+                </ul>
+            <?php endif ?>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Show the back arrow only when there's browser history to go back to;
+    // it behaves exactly like the browser Back button.
+    if (history.length > 1) {
+        document.getElementById('back-nav').hidden = false;
+    }
+
+    // Submit the snooze in place. A normal POST+redirect adds a second
+    // history entry for this page, so Back had to be pressed twice to reach
+    // the dashboard. fetch + reload keeps history at one entry; if JS is
+    // unavailable the form still posts normally.
+    (function () {
+        var form = document.getElementById('snooze-form');
+        if (!form) {
+            return;
+        }
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            fetch(form.action, { method: 'POST', body: new FormData(form) })
+                .then(function (response) {
+                    if (response.ok) {
+                        window.location.reload();
+                    } else {
+                        // Native submit doesn't re-fire this listener.
+                        form.submit();
+                    }
+                })
+                .catch(function () {
+                    form.submit();
+                });
+        });
+    })();
+</script>
+
+<script>
+    // Photo upload via drag-drop or paste, in addition to the click-to-pick
+    // file input. Pasting is the fast path for photos copied off the web.
+    (function () {
+        const drop = document.getElementById('avatar-drop');
+        const input = document.getElementById('photo-input');
+
+        function uploadFile(file) {
+            if (!file || !file.type.startsWith('image/')) {
+                return;
+            }
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+            input.form.submit();
+        }
+
+        drop.addEventListener('dragover', function (e) {
+            e.preventDefault();
+        });
+        drop.addEventListener('drop', function (e) {
+            e.preventDefault();
+            uploadFile(e.dataTransfer.files[0]);
+        });
+        document.addEventListener('paste', function (e) {
+            // Never hijack a paste aimed at a form field, and never
+            // overwrite an existing photo without asking.
+            if (e.target.closest('input, textarea, select, [contenteditable]')) {
+                return;
+            }
+            const items = e.clipboardData && e.clipboardData.files;
+            if (!items || items.length === 0) {
+                return;
+            }
+            const hasPhoto = <?= ($contact['photo'] ?? null) !== null ? 'true' : 'false' ?>;
+            if (hasPhoto && !confirm('Replace the profile photo with the pasted image?')) {
+                return;
+            }
+            uploadFile(items[0]);
+        });
+    })();
+</script>
+
+<?php include __DIR__ . '/../layout/footer.php';

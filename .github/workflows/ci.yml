@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Lint, syntax-check, and test
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_DATABASE: rolo_test
+          MARIADB_USER: rolo_test
+          MARIADB_PASSWORD: rolo_test
+          MARIADB_RANDOM_ROOT_PASSWORD: "1"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: mbstring, pdo, pdo_mysql, curl
+          coverage: none
+          tools: composer
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      # vendor/ is committed (see CLAUDE.md — the SFTP deploy account can't run
+      # composer install on the server), so this should be a no-op most of the
+      # time. It's here as a safety net in case vendor/ drifts from composer.lock.
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: PHP syntax check ("does it compile")
+        run: |
+          find src public config tests bin -name '*.php' -print0 2>/dev/null \
+            | xargs -0 -n1 -I{} php -l {}
+
+      - name: Lint (PHP_CodeSniffer, PSR-12)
+        run: vendor/bin/phpcs
+
+      - name: Unit tests (PHPUnit)
+        run: vendor/bin/phpunit
+        env:
+          # Database-backed tests (tests/Models, tests/Database) run against
+          # the MariaDB service; without these they'd be skipped.
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: rolo_test
+          TEST_DB_USER: rolo_test
+          TEST_DB_PASSWORD: rolo_test

@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.DS_Store
+*.log
+.idea/
+.vscode/
+.phpunit.result.cache
+vendor/

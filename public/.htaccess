@@ -1,0 +1,19 @@
+# Route everything that isn't a real file through the front controller
+# (the shared host runs Apache; the PHP dev server needs no equivalent).
+RewriteEngine On
+RewriteBase /
+
+# Private app: keep every page out of search engines. The header is the
+# right tool (not a robots.txt Disallow, which blocks crawling but still
+# lets an off-site mention put the URL in the index — and would stop
+# crawlers from ever seeing this noindex).
+Header always set X-Robots-Tag "noindex, nofollow"
+
+# Apache under CGI/FastCGI strips the Authorization header before PHP sees
+# it — re-export it so Bearer-token auth (/cron/daily-summary) works.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
