@@ -95,6 +95,15 @@ final class ProposalModel
         )->fetchAll();
     }
 
+    /** Stamp a pending proposal as announced in Slack (announce-once guard). */
+    public function markSlackNotified(int $id): void
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'UPDATE api_proposals SET slack_notified_at = CURRENT_TIMESTAMP WHERE id = :id'
+        );
+        $stmt->execute(['id' => $id]);
+    }
+
     public function decide(int $id, string $status, int $reviewerId, ?string $error = null): void
     {
         $stmt = $this->db->pdo()->prepare(

@@ -28,6 +28,14 @@ final class DailySummaryServiceTest extends TestCase
         $this->assertTrue(DailySummaryService::isSendTime($this->eastern('2026-07-09 13:45:00')));
     }
 
+    public function testWeekendsAreNotSendTime(): void
+    {
+        // 2026-07-11 is a Saturday, 2026-07-12 a Sunday, 2026-07-13 a Monday.
+        $this->assertFalse(DailySummaryService::isSendTime($this->eastern('2026-07-11 09:30:00')));
+        $this->assertFalse(DailySummaryService::isSendTime($this->eastern('2026-07-12 09:30:00')));
+        $this->assertTrue(DailySummaryService::isSendTime($this->eastern('2026-07-13 09:30:00')));
+    }
+
     /**
      * Renders the actual email template with fixture data and checks the
      * pieces the feature promises: the nudge link at the very top, both
@@ -88,6 +96,37 @@ final class DailySummaryServiceTest extends TestCase
         $this->assertStringContainsString('cid:photo-c7', $html);
         $this->assertStringContainsString('>SS</span>', $html);
         $this->assertStringContainsString('Plus 3 going cold', $html);
+    }
+
+    public function testEmailShowsPendingApprovalsBannerAboveEverything(): void
+    {
+        $base = [
+            'appUrl' => 'https://crm.example.com',
+            'overdue' => [],
+            'dueToday' => [],
+            'yesterdayActivities' => [],
+            'activityTypes' => [],
+            'todayLabel' => 'Thursday, July 9',
+            'yesterdayLabel' => 'Wednesday',
+            'photoCids' => [],
+        ];
+
+        $html = View::render('emails/daily_summary', $base + ['pendingApprovals' => 10]);
+        $this->assertStringContainsString('approvals outstanding', $html);
+        $this->assertStringContainsString('>10</strong>', $html);
+        $this->assertStringContainsString('https://crm.example.com/proposals', $html);
+        $bannerPos = strpos($html, 'approvals outstanding');
+        $nudgePos = strpos($html, 'Have you logged what you did yesterday?');
+        $this->assertLessThan($nudgePos, $bannerPos, 'Approvals banner must sit at the very top.');
+
+        $singular = View::render('emails/daily_summary', $base + ['pendingApprovals' => 1]);
+        $this->assertStringContainsString('approval outstanding', $singular);
+        $this->assertStringNotContainsString('approvals outstanding', $singular);
+
+        // No banner at all when the approvals queue is empty.
+        $none = View::render('emails/daily_summary', $base + ['pendingApprovals' => 0]);
+        $this->assertStringNotContainsString('outstanding', $none);
+        $this->assertStringNotContainsString('/proposals', $none);
     }
 
     public function testEmailTemplateEmptyStatesNudgeTowardLogging(): void

@@ -13,6 +13,8 @@ use App\Models\StageModel;
 use App\Models\TagModel;
 use App\Services\AttachmentService;
 use App\Services\ReminderService;
+use App\Services\SlackCelebrationService;
+use App\Support\SlackClient;
 use App\Support\Url;
 use App\Support\View;
 use DateTimeImmutable;
@@ -66,8 +68,14 @@ final class ContactController extends Controller
         ]);
     }
 
-    /** Whitelisted snooze lengths (days) offered by the contact page dropdown. */
-    public const SNOOZE_OPTIONS = [1 => '1 day', 7 => '1 week', 30 => '1 month'];
+    /** Whitelisted snooze lengths (days) offered by the snooze dropdowns. */
+    public const SNOOZE_OPTIONS = [
+        1 => '1 day',
+        3 => '3 days',
+        7 => '1 week',
+        30 => '1 month',
+        365 => '1 year',
+    ];
 
     /**
      * Snooze the follow-up: next touch becomes today + N days, regardless of
@@ -120,6 +128,64 @@ final class ContactController extends Controller
         $back = ($_POST['return_to'] ?? '') === '/' ? '/' : '/contacts/' . (int) $contact['id'];
 
         return $this->redirect($back);
+    }
+
+    /**
+     * Set (or clear) the next follow-up date directly — the undo for a
+     * mis-snooze and the "just pick a date" control the snooze dropdown
+     * can't express. Leaves the same history trace as a snooze.
+     *
+     * @param array<string, string> $vars route parameters
+     */
+    public function setFollowUp(array $vars): string
+    {
+        $this->requireValidCsrf();
+
+        $contacts = new ContactModel($this->db);
+        $contact = $contacts->find((int) $vars['id']);
+
+        if ($contact === null) {
+            http_response_code(404);
+            return View::render('errors/404');
+        }
+
+        $raw = trim((string) ($_POST['next_touch_date'] ?? ''));
+        $newDate = null;
+
+        if ($raw !== '') {
+            $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $raw);
+
+            if ($parsed === false || $parsed->format('Y-m-d') !== $raw) {
+                return $this->redirect('/contacts/' . (int) $contact['id']);
+            }
+
+            $newDate = $raw;
+        }
+
+        $oldDate = (string) ($contact['next_touch_date'] ?? '');
+
+        if (($newDate ?? '') === $oldDate) {
+            return $this->redirect('/contacts/' . (int) $contact['id']);
+        }
+
+        $contacts->snooze((int) $contact['id'], $newDate, $this->auth->id());
+
+        (new ActivityModel($this->db))->create(
+            contactId: (int) $contact['id'],
+            organizationId: $contact['organization_id'] === null ? null : (int) $contact['organization_id'],
+            activityType: 'snoozed',
+            activityDate: $this->todayLocal()->format('Y-m-d'),
+            summary: sprintf(
+                'Modified follow up date from: %s, to: %s',
+                $oldDate === '' ? 'none' : $oldDate,
+                $newDate ?? 'none',
+            ),
+            followUpNeeded: false,
+            followUpDate: null,
+            userId: $this->auth->id(),
+        );
+
+        return $this->redirect('/contacts/' . (int) $contact['id']);
     }
 
     public function trash(array $vars): string
@@ -306,6 +372,16 @@ final class ContactController extends Controller
 
         $contacts->update((int) $contact['id'], $data, $this->auth->id());
         (new TagModel($this->db))->syncForContact((int) $contact['id'], $data['tags']);
+
+        (new SlackCelebrationService($this->config, new SlackClient($this->config)))->maybeCelebrate(
+            (string) $contact['relationship_status'],
+            (string) $data['relationship_status'],
+            (int) $contact['id'],
+            (string) $data['name'],
+            $data['organization_id'] == $contact['organization_id']
+                ? (($contact['organization_name'] ?? null) === null ? null : (string) $contact['organization_name'])
+                : null,
+        );
 
         return $this->redirect('/contacts/' . (int) $contact['id']);
     }

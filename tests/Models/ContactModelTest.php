@@ -231,6 +231,22 @@ final class ContactModelTest extends DatabaseTestCase
         self::assertSame(['Amy Adams', 'Zoe Zimmer'], $names);
     }
 
+    public function testSnoozeSetsRestoresAndClearsTheNextDate(): void
+    {
+        $id = $this->insertContact('Snoozy Sam', next: '2026-10-21');
+
+        $this->contacts->snooze($id, '2026-11-13', 1);
+        self::assertSame('2026-11-13', $this->contacts->find($id)['next_touch_date']);
+
+        // The Slack Undo path: restore the remembered previous date.
+        $this->contacts->snooze($id, '2026-10-21', 1);
+        self::assertSame('2026-10-21', $this->contacts->find($id)['next_touch_date']);
+
+        // The web date editor can clear the reminder entirely.
+        $this->contacts->snooze($id, null, 1);
+        self::assertNull($this->contacts->find($id)['next_touch_date']);
+    }
+
     private function insertOrganization(string $name): int
     {
         $stmt = self::db()->pdo()->prepare('INSERT INTO organizations (name) VALUES (:name)');

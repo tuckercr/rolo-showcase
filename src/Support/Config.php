@@ -18,6 +18,10 @@ final readonly class Config
      * @param list<string> $allowedEmails lowercase allowlist — Google
      *        authenticates, this list authorizes (docs/SCHEMA.md)
      * @param list<string> $summaryRecipients daily summary email recipients
+     * @param array<string, int> $slackUserMap Slack member id => rolo user id;
+     *        only these people may press the bot's buttons
+     * @param list<string> $slackDebriefUsers Slack member ids who get the
+     *        evening debrief DM (approval DMs go to everyone in the map)
      */
     public function __construct(
         public string $appEnv,
@@ -41,6 +45,10 @@ final readonly class Config
         public array $summaryRecipients = [],
         public string $apiTokenRead = '',
         public string $apiTokenWrite = '',
+        public string $slackBotToken = '',
+        public string $slackSigningSecret = '',
+        public array $slackUserMap = [],
+        public array $slackDebriefUsers = [],
     ) {
     }
 
@@ -81,6 +89,13 @@ final readonly class Config
             summaryRecipients: self::parseEmailList(self::optionalString($env, 'SUMMARY_RECIPIENTS')),
             apiTokenRead: self::optionalString($env, 'API_TOKEN_READ'),
             apiTokenWrite: self::optionalString($env, 'API_TOKEN_WRITE'),
+            slackBotToken: self::optionalString($env, 'SLACK_BOT_TOKEN'),
+            slackSigningSecret: self::optionalString($env, 'SLACK_SIGNING_SECRET'),
+            slackUserMap: self::parseSlackUserMap(self::optionalString($env, 'SLACK_USER_MAP')),
+            slackDebriefUsers: array_values(array_filter(array_map(
+                'trim',
+                explode(',', self::optionalString($env, 'SLACK_DEBRIEF_USERS')),
+            ), static fn(string $u): bool => $u !== '')),
         );
     }
 
@@ -110,6 +125,34 @@ final readonly class Config
         );
 
         return array_values(array_filter($emails, static fn(string $e): bool => $e !== ''));
+    }
+
+    /**
+     * "U0123ABCD:1,U0456EFGH:2" => Slack member id => rolo user id.
+     * Malformed entries are dropped rather than fatal: a typo in this value
+     * must never take the whole app down with it.
+     *
+     * @return array<string, int>
+     */
+    private static function parseSlackUserMap(string $raw): array
+    {
+        $map = [];
+
+        foreach (explode(',', $raw) as $pair) {
+            $parts = explode(':', trim($pair));
+
+            if (count($parts) !== 2) {
+                continue;
+            }
+
+            [$slackId, $userId] = $parts;
+
+            if (trim($slackId) !== '' && ctype_digit(trim($userId))) {
+                $map[trim($slackId)] = (int) trim($userId);
+            }
+        }
+
+        return $map;
     }
 
     /**

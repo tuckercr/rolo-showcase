@@ -13,6 +13,7 @@ use App\Models\StageModel;
 use App\Models\TagModel;
 use App\Support\Config;
 use App\Support\Database;
+use App\Support\SlackClient;
 use App\Support\Url;
 use DateTimeImmutable;
 use InvalidArgumentException;
@@ -296,6 +297,16 @@ final class ProposalService
         }
 
         $contacts->update((int) $contact['id'], $merged, $reviewerId);
+
+        (new SlackCelebrationService($this->config, new SlackClient($this->config)))->maybeCelebrate(
+            (string) $contact['relationship_status'],
+            (string) $merged['relationship_status'],
+            (int) $contact['id'],
+            (string) $merged['name'],
+            $merged['organization_id'] == $contact['organization_id']
+                ? (($contact['organization_name'] ?? null) === null ? null : (string) $contact['organization_name'])
+                : null,
+        );
     }
 
     // ---- change_tags -------------------------------------------------------

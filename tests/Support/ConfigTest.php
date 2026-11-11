@@ -49,6 +49,36 @@ final class ConfigTest extends TestCase
         $this->assertSame('', $config->dbPassword);
     }
 
+    public function testParsesSlackUserMapAndDebriefUsers(): void
+    {
+        $config = Config::fromEnv([
+            'SLACK_USER_MAP' => ' U0123ABCD:1 , U0456EFGH:2 ',
+            'SLACK_DEBRIEF_USERS' => 'U0456EFGH, ,U0123ABCD',
+        ] + $this->validEnv());
+
+        $this->assertSame(['U0123ABCD' => 1, 'U0456EFGH' => 2], $config->slackUserMap);
+        $this->assertSame(['U0456EFGH', 'U0123ABCD'], $config->slackDebriefUsers);
+    }
+
+    public function testMalformedSlackUserMapEntriesAreDroppedNotFatal(): void
+    {
+        $config = Config::fromEnv([
+            'SLACK_USER_MAP' => 'U0123ABCD:1,garbage,U0456EFGH:x,:3,U0789IJKL:2:extra',
+        ] + $this->validEnv());
+
+        $this->assertSame(['U0123ABCD' => 1], $config->slackUserMap);
+    }
+
+    public function testSlackConfigDefaultsToDisabled(): void
+    {
+        $config = Config::fromEnv($this->validEnv());
+
+        $this->assertSame('', $config->slackBotToken);
+        $this->assertSame('', $config->slackSigningSecret);
+        $this->assertSame([], $config->slackUserMap);
+        $this->assertSame([], $config->slackDebriefUsers);
+    }
+
     public function testRejectsMissingRequiredKey(): void
     {
         $env = $this->validEnv();

@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\ActivityModel;
 use App\Models\ContactModel;
+use App\Models\ProposalModel;
 use App\Support\Config;
 use App\Support\Database;
 use App\Support\Mailer;
@@ -45,7 +46,12 @@ final class DailySummaryService
         }
 
         if (!$force && !self::isSendTime($now)) {
-            return sprintf('skipped: %s is before %02d:00 local', $now->format('H:i'), self::SEND_HOUR_LOCAL);
+            return sprintf(
+                'skipped: %s %s is not a weekday after %02d:00 local',
+                $now->format('D'),
+                $now->format('H:i'),
+                self::SEND_HOUR_LOCAL,
+            );
         }
 
         if (!$force && $this->alreadySentFor($today)) {
@@ -57,9 +63,12 @@ final class DailySummaryService
         $data['photoCids'] = $photoCids;
         $html = View::render('emails/daily_summary', $data);
         $subject = sprintf(
-            'Rolo: %d overdue, %d due today (%s)',
+            'Rolo: %d overdue, %d due today%s (%s)',
             count($data['overdue']),
             count($data['dueToday']),
+            $data['pendingApprovals'] > 0
+                ? sprintf(', %d to approve', $data['pendingApprovals'])
+                : '',
             $now->format('D M j'),
         );
 
@@ -122,7 +131,13 @@ final class DailySummaryService
 
     public static function isSendTime(DateTimeImmutable $nowLocal): bool
     {
-        return (int) $nowLocal->format('G') >= self::SEND_HOUR_LOCAL;
+        // Weekdays only (Colin, 2026-11-10): no follow-up email on Saturday
+        // or Sunday. Monday's email covers the weekend's logged activity via
+        // its "yesterday" section being Sunday, and anything due stays on
+        // the dashboard.
+        $weekday = (int) $nowLocal->format('N') <= 5;
+
+        return $weekday && (int) $nowLocal->format('G') >= self::SEND_HOUR_LOCAL;
     }
 
     /**
@@ -130,6 +145,8 @@ final class DailySummaryService
      *     appUrl: string,
      *     overdue: list<array<string, mixed>>,
      *     dueToday: list<array<string, mixed>>,
+     *     goingColdCount: int,
+     *     pendingApprovals: int,
      *     yesterdayActivities: list<array<string, mixed>>,
      *     activityTypes: array<string, string>,
      *     todayLabel: string,
@@ -163,6 +180,7 @@ final class DailySummaryService
             'overdue' => $overdue,
             'dueToday' => $dueToday,
             'goingColdCount' => count($goingCold),
+            'pendingApprovals' => (new ProposalModel($this->db))->pendingCount(),
             'yesterdayActivities' => (new ActivityModel($this->db))->onDate($yesterday),
             'activityTypes' => ActivityModel::DISPLAY_TYPES,
             'todayLabel' => $nowLocal->format('l, F j'),

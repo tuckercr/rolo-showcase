@@ -22,6 +22,7 @@ use App\Controllers\HelpController;
 use App\Controllers\OrganizationController;
 use App\Controllers\PhotoController;
 use App\Controllers\SettingsController;
+use App\Controllers\SlackController;
 use FastRoute\RouteCollector;
 
 return static function (RouteCollector $r): void {
@@ -41,6 +42,7 @@ return static function (RouteCollector $r): void {
     $r->addRoute('GET', '/contacts/trash', [ContactController::class, 'trashIndex']);
     $r->addRoute('POST', '/contacts', [ContactController::class, 'store']);
     $r->addRoute('POST', '/contacts/{id:\d+}/snooze', [ContactController::class, 'snooze']);
+    $r->addRoute('POST', '/contacts/{id:\d+}/follow-up', [ContactController::class, 'setFollowUp']);
     $r->addRoute('POST', '/contacts/{id:\d+}/trash', [ContactController::class, 'trash']);
     $r->addRoute('POST', '/contacts/{id:\d+}/restore', [ContactController::class, 'restore']);
     $r->addRoute('GET', '/contacts/{id:\d+}/photo', [PhotoController::class, 'show']);
@@ -107,6 +109,12 @@ return static function (RouteCollector $r): void {
 
     // Scheduled jobs (public route, guarded by CRON_SECRET instead of a session)
     $r->addRoute(['GET', 'POST'], '/cron/daily-summary', [CronController::class, 'dailySummary']);
+    $r->addRoute(['GET', 'POST'], '/cron/slack-debrief', [CronController::class, 'slackDebrief']);
+
+    // Slack interactivity + the /rolo slash command (stateless; Slack's
+    // request signature is the auth)
+    $r->addRoute('POST', '/slack/interact', [SlackController::class, 'interact']);
+    $r->addRoute('POST', '/slack/command', [SlackController::class, 'command']);
 
     // Organizations
     $r->addRoute('GET', '/organizations', [OrganizationController::class, 'index']);

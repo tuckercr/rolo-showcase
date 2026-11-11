@@ -16,10 +16,12 @@ use App\Support\View;
  * @var string $todayLabel
  * @var string $yesterdayLabel
  * @var array<int, string> $photoCids contact id => inline-attachment cid
+ * @var int $pendingApprovals agent proposals waiting on the Approvals page
  */
 
 $photoCids = $photoCids ?? [];
 $goingColdCount = (int) ($goingColdCount ?? 0);
+$pendingApprovals = (int) ($pendingApprovals ?? 0);
 
 $avatarCell = static function (int $contactId, string $name) use ($photoCids): string {
     $cell = '<td style="width:40px;padding:8px 0 8px 12px;border-bottom:1px solid #DCD3C2;'
@@ -83,6 +85,26 @@ $contactRows = static function (array $contacts) use ($appUrl, $rowStyle, $avata
         <span style="color:#ffffff;font-size:18px;font-weight:bold;">Rolo</span>
         <span style="color:#8A857C;font-size:13px;"> &middot; <?= View::e($todayLabel) ?></span>
     </td></tr>
+
+    <?php if ($pendingApprovals > 0) : ?>
+        <tr><td style="padding:20px 28px 0;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                   style="background-color:#F3EFE7;border-radius:8px;"><tr>
+                <td style="padding:12px 16px;font-size:14px;color:#3A3630;">
+                    You have <strong><?= $pendingApprovals ?></strong>
+                    <?= $pendingApprovals === 1 ? 'approval' : 'approvals' ?> outstanding.
+                </td>
+                <td align="right" style="padding:12px 16px;white-space:nowrap;">
+                    <a href="<?= View::e($appUrl) ?>/proposals"
+                       style="display:inline-block;background-color:#C1272D;color:#ffffff;
+                              padding:8px 14px;border-radius:6px;font-size:13px;
+                              font-weight:bold;text-decoration:none;">
+                        Review approvals &rarr;
+                    </a>
+                </td>
+            </tr></table>
+        </td></tr>
+    <?php endif ?>
 
     <tr><td style="padding:20px 28px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>

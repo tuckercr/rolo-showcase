@@ -177,6 +177,22 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                         Snooze
                     </button>
                 </form>
+                <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/follow-up"
+                      class="mt-1.5 flex items-center gap-1.5">
+                    <?= Csrf::field() ?>
+                    <input type="date" name="next_touch_date"
+                           value="<?= View::e($next) ?>"
+                           aria-label="Next follow-up date"
+                           class="text-xs text-brand-inksoft border border-brand-sand rounded
+                                  px-1.5 py-1 bg-white">
+                    <button type="submit"
+                            class="text-xs text-brand-inksoft border border-brand-sand
+                                   hover:bg-brand-cream2 rounded px-2.5 py-1"
+                            title="Set the follow-up to exactly this date; leave it empty to
+                                   remove the reminder">
+                        Set date
+                    </button>
+                </form>
             </div>
             <div>
                 <p class="text-xs uppercase tracking-wide text-brand-muted">Last contacted</p>

@@ -41,9 +41,13 @@ $config = require dirname(__DIR__) . '/config/bootstrap.php';
 $httpMethod = $_SERVER['REQUEST_METHOD'];
 $uri = rawurldecode((string) parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
 
-// The agent API (REST and MCP) is stateless: bearer-token auth inside its
-// controllers, no session cookie, JSON errors instead of HTML pages.
-$isApi = str_starts_with($uri, '/api/') || $uri === '/mcp' || str_starts_with($uri, '/mcp/');
+// The agent API (REST, MCP) and the Slack webhook are stateless: token or
+// signature auth inside their controllers, no session cookie, JSON errors
+// instead of HTML pages.
+$isApi = str_starts_with($uri, '/api/')
+    || $uri === '/mcp'
+    || str_starts_with($uri, '/mcp/')
+    || str_starts_with($uri, '/slack/');
 
 if (!$isApi) {
     Session::start($config);
@@ -60,6 +64,7 @@ $publicRoutes = [
     '/auth/google',
     '/auth/google/callback',
     '/cron/daily-summary', // guarded by CRON_SECRET, not a session
+    '/cron/slack-debrief', // guarded by CRON_SECRET, not a session
 ];
 
 $jsonError = static function (int $status, string $code, string $message): void {

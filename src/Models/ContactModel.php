@@ -206,10 +206,12 @@ final class ContactModel
     }
 
     /**
-     * Snooze: push the next touch to a new date without logging an activity
-     * or moving last_touch. The updated_by trail still records who did it.
+     * Set the next touch date directly (snooze, the manual date editor, and
+     * the Slack undo all land here) without logging an activity or moving
+     * last_touch. Null clears the reminder entirely. The updated_by trail
+     * still records who did it.
      */
-    public function snooze(int $id, string $nextTouchDate, int $userId): void
+    public function snooze(int $id, ?string $nextTouchDate, int $userId): void
     {
         $stmt = $this->db->pdo()->prepare(
             'UPDATE contacts

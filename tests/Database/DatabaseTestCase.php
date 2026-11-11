@@ -46,6 +46,8 @@ abstract class DatabaseTestCase extends TestCase
         'api_proposals',
         'api_audit',
         'daily_summary_log',
+        'slack_debrief_log',
+        'slack_notice_log',
     ];
 
     protected function setUp(): void

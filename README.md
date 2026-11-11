@@ -90,6 +90,36 @@ instructions: **reads are live, writes never land directly.**
   clear the follow-up queue. A backdated touch approved out of order goes
   into history without dragging the schedule backwards.
 
+## The Slack bot
+
+Rolo also comes to Slack instead of waiting to be opened (`src/Controllers/
+SlackController.php`, `src/Services/Slack*.php`) — notable because it runs
+entirely on shared hosting: no resident process, no Socket Mode, just signed
+webhooks in and `chat.postMessage` out.
+
+- **The evening debrief.** Weekdays at 5 PM the bot DMs each configured
+  person the contacts due today, each with Log touch / Open / Snooze / Skip
+  buttons. Log touch opens a Slack modal (type, note, follow-up date);
+  submissions write through the same proposal pipeline as agents, so the
+  scheduling rules live in exactly one place. Snoozes carry an Undo button
+  that restores the previous date.
+- **Approvals as DMs.** Pending agent proposals arrive with Approve / Reject
+  buttons — the review queue as a 5-second tap. Each proposal announces
+  exactly once.
+- **`/rolo` slash command.** `who <name>` answers an ephemeral contact card
+  (stage, touch dates, the memorable-human-detail line, recent history);
+  `overdue` lists what's slipping; `debrief` sends the evening review on
+  demand without silencing the scheduled one.
+- **Scheduled nudges.** A Monday DM lists contacts that went cold within the
+  week — computed statelessly by diffing today's going-cold set against last
+  week's — and reaching the Active client stage earns a small celebration DM.
+- **Security shape.** Inbound requests verify Slack's signing secret with a
+  replay window; the tapping Slack account must map to an app user via an
+  allowlist, and that user is recorded as the actor. The scheduler is a dumb
+  external heartbeat hitting one CRON_SECRET-gated endpoint; every notice
+  gates itself by hour, weekday and a dedupe row, so a double-fired cron
+  (the DST trick) is always a no-op.
+
 ## What it does
 
 - **Contacts and organizations.** Only a name is required to capture. A
