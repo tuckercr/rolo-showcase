@@ -40,6 +40,17 @@ final class ContactModelTest extends DatabaseTestCase
         self::assertSame(['Overdue Olive', 'Today Tess', 'Horizon Hank'], $names);
     }
 
+    public function testDueExcludingColdMakesTheDashboardSplit(): void
+    {
+        $this->insertContact('Mildly Late', next: '2026-10-20');   // 4 days late: stays
+        $this->insertContact('Today Tess', next: self::TODAY);     // due today: stays
+        $this->insertContact('Quietly Dying', next: '2026-09-01'); // 30+ days late: going cold, leaves
+
+        $names = array_column($this->contacts->dueExcludingCold(self::TODAY), 'name');
+
+        self::assertSame(['Mildly Late', 'Today Tess'], $names);
+    }
+
     public function testDueByOrdersByDateThenName(): void
     {
         $this->insertContact('Zoe Zimmer', next: self::TODAY);
@@ -253,6 +264,23 @@ final class ContactModelTest extends DatabaseTestCase
         $stmt->execute(['name' => $name]);
 
         return (int) self::db()->pdo()->lastInsertId();
+    }
+
+    public function testActiveByEmailsMatchesCaseInsensitivelyAndSkipsTrashed(): void
+    {
+        $insert = self::db()->pdo()->prepare(
+            "INSERT INTO contacts (name, email, relationship_status, created_by, updated_by, deleted_at)
+             VALUES (?, ?, 'Conversation Started', 1, 1, ?)"
+        );
+        $insert->execute(['Brad Day', 'Brad@ETHIA.com', null]);
+        $insert->execute(['Trashed Tina', 'tina@gone.com', '2026-10-01 00:00:00']);
+
+        $byEmail = $this->contacts->activeByEmails(['brad@ethia.com', 'tina@gone.com', '']);
+
+        self::assertSame(['brad@ethia.com'], array_keys($byEmail), 'stored casing matches, trash does not');
+        self::assertSame('Brad Day', $byEmail['brad@ethia.com']['name']);
+
+        self::assertSame([], $this->contacts->activeByEmails([]));
     }
 
     private function insertContact(

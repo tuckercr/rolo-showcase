@@ -9,7 +9,7 @@ use DateTimeImmutable;
 /**
  * The follow-up rules engine (docs/SCHEMA.md). Pure date math over the
  * reminder_rules rows — cadence lives in the database, not in code, so
- * the owner can tune it without a deploy.
+ * Dana can tune it without a deploy.
  *
  * Rules are injected as an array (see ReminderRuleModel::activeByStatus())
  * to keep this class free of I/O and fully unit-testable.

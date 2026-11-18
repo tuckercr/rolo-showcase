@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Services;
 
+use App\Services\CalendarSuggestionService;
 use App\Services\SlackDebriefService;
 use App\Support\Config;
 use DateTimeImmutable;
@@ -55,7 +56,7 @@ final class SlackDebriefServiceTest extends DatabaseTestCase
         self::assertStringContainsString('sent 1', $outcome);
         self::assertCount(1, $slack->messages);
         self::assertSame('U_DANA', $slack->messages[0]['channel']);
-        self::assertSame('You had 2 follow-ups due today.', $slack->messages[0]['text']);
+        self::assertSame('You have 1 overdue follow-up and 1 due today.', $slack->messages[0]['text']);
 
         $json = json_encode($slack->messages[0]['blocks'], JSON_THROW_ON_ERROR);
         self::assertStringContainsString('Maria Santos', $json);
@@ -83,6 +84,25 @@ final class SlackDebriefServiceTest extends DatabaseTestCase
         $okOffHours = str_contains($second, 'already sent 1') || str_contains($second, 'not a weekday after');
         self::assertTrue($okOffHours, 'second run must dedupe or be outside the send window: ' . $second);
         self::assertCount(2, $slack->messages);
+    }
+
+    public function testGoingColdContactsLeaveTheDebrief(): void
+    {
+        // The dashboard and the morning email both move 30+-days-late
+        // contacts from Overdue to Going cold; the debrief must quote the
+        // same number (it said 31 where the dashboard said 28, 2026-11-12).
+        $today = new DateTimeImmutable('today', new DateTimeZone('America/New_York'));
+        $this->insertContact('Mildly Late', $today->modify('-3 days')->format('Y-m-d'));
+        $this->insertContact('Quietly Dying', $today->modify('-45 days')->format('Y-m-d'));
+
+        $slack = new RecordingSlackClient($this->config());
+        (new SlackDebriefService($this->config(), self::db(), $slack))->run(force: true);
+
+        self::assertSame('You have 1 overdue follow-up.', $slack->messages[0]['text']);
+
+        $json = json_encode($slack->messages[0]['blocks'], JSON_THROW_ON_ERROR);
+        self::assertStringContainsString('Mildly Late', $json);
+        self::assertStringNotContainsString('Quietly Dying', $json, 'going cold is the Monday alert, not the debrief');
     }
 
     public function testRunForUserAlwaysSendsAndNeverDedupes(): void
@@ -132,6 +152,80 @@ final class SlackDebriefServiceTest extends DatabaseTestCase
 
         self::assertStringContainsString('not configured', $outcome);
         self::assertCount(0, $slack->messages);
+    }
+
+    public function testCalendarSuggestionsGetPrefilledLogButtons(): void
+    {
+        $today = new DateTimeImmutable('today', new DateTimeZone('America/New_York'));
+        $this->insertContact('Maria Santos', $today->format('Y-m-d'));
+
+        $stub = new class ($this->config(), self::db()) extends CalendarSuggestionService {
+            /** @var list<int|null> */
+            public array $userIds = [];
+
+            public function suggestionsFor(?int $userId, string $today): array
+            {
+                $this->userIds[] = $userId;
+
+                return [[
+                    'contact' => ['id' => 7, 'name' => 'Brad Day', 'organization_name' => 'ETHIA'],
+                    'title' => 'ETHIA brief review',
+                    'time' => '2:00 PM',
+                ]];
+            }
+        };
+
+        $slack = new RecordingSlackClient($this->config());
+        (new SlackDebriefService($this->config(), self::db(), $slack, $stub))->run(force: true);
+
+        self::assertSame([2], $stub->userIds, 'U_DANA maps to rolo user 2');
+
+        $json = stripslashes(json_encode($slack->messages[0]['blocks'], JSON_THROW_ON_ERROR));
+        self::assertStringContainsString('From your calendar today', $json);
+        self::assertStringContainsString('You met *Brad Day* (ETHIA) at 2:00 PM: _ETHIA brief review_', $json);
+        self::assertStringContainsString('"v":"cal"', $json);
+        self::assertStringContainsString('"s":"ETHIA brief review"', $json, 'the modal prefill rides the button');
+        self::assertStringContainsString('cal_log_7', $json, 'calendar ids never collide with prompt ids');
+    }
+
+    public function testQuietDayStillShowsCalendarSuggestions(): void
+    {
+        $stub = new class ($this->config(), self::db()) extends CalendarSuggestionService {
+            public function suggestionsFor(?int $userId, string $today): array
+            {
+                return [[
+                    'contact' => ['id' => 7, 'name' => 'Brad Day', 'organization_name' => ''],
+                    'title' => '',
+                    'time' => null,
+                ]];
+            }
+        };
+
+        $slack = new RecordingSlackClient($this->config());
+        (new SlackDebriefService($this->config(), self::db(), $slack, $stub))->run(force: true);
+
+        $json = stripslashes(json_encode($slack->messages[0]['blocks'], JSON_THROW_ON_ERROR));
+        self::assertStringContainsString('Nothing was due today', $json);
+        self::assertStringContainsString('You met *Brad Day* today: _a meeting_', $json);
+    }
+
+    public function testCalendarFailureNeverStopsTheDebrief(): void
+    {
+        $today = new DateTimeImmutable('today', new DateTimeZone('America/New_York'));
+        $this->insertContact('Maria Santos', $today->format('Y-m-d'));
+
+        $stub = new class ($this->config(), self::db()) extends CalendarSuggestionService {
+            public function suggestionsFor(?int $userId, string $today): array
+            {
+                throw new \RuntimeException('Google is down');
+            }
+        };
+
+        $slack = new RecordingSlackClient($this->config());
+        $outcome = (new SlackDebriefService($this->config(), self::db(), $slack, $stub))->run(force: true);
+
+        self::assertStringContainsString('sent 1', $outcome);
+        self::assertStringContainsString('Maria Santos', json_encode($slack->messages[0]['blocks']));
     }
 
     public function testIsSendTimeGatesOnWeekdayEvenings(): void

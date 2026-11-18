@@ -118,7 +118,7 @@ final class ContactModel
      *
      * The default horizon is 6 = "this week" as 7 calendar days INCLUDING
      * today. It was 7, which made a one-week snooze (today + 7) land exactly
-     * on the boundary and stay on the dashboard — the owner's snooze-looks-
+     * on the boundary and stay on the dashboard — Dana's snooze-looks-
      * buggy report (2026-07-22). Snoozing a week now clears the list.
      *
      * @return list<array<string, mixed>>
@@ -141,6 +141,28 @@ final class ContactModel
     }
 
     /**
+     * Due today or overdue, with the going-cold contacts removed: the
+     * dashboard's split (mildly late and quietly dying are different
+     * problems), shared by the Slack debrief and the /rolo lists so every
+     * surface quotes the same numbers (Colin, 2026-11-12: the debrief said
+     * 31 where the dashboard said 28 overdue + 1 due today).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function dueExcludingCold(string $today): array
+    {
+        $coldIds = array_map(
+            static fn(array $c): int => (int) $c['id'],
+            $this->goingCold($today),
+        );
+
+        return array_values(array_filter(
+            $this->dueBy($today, 0),
+            static fn(array $c): bool => !in_array((int) $c['id'], $coldIds, true),
+        ));
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function find(int $id): ?array
@@ -154,6 +176,40 @@ final class ContactModel
         $row = $stmt->fetch();
 
         return $row === false ? null : $row;
+    }
+
+    /**
+     * Live contacts whose email is in the list, keyed by lowercase email —
+     * how calendar-event attendees become contacts (CalendarSuggestionService).
+     *
+     * @param list<string> $emails
+     * @return array<string, array<string, mixed>> lowercase email => contact
+     */
+    public function activeByEmails(array $emails): array
+    {
+        $emails = array_values(array_unique(array_filter(array_map(
+            static fn(string $e): string => strtolower(trim($e)),
+            $emails,
+        ), static fn(string $e): bool => $e !== '')));
+
+        if ($emails === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($emails), '?'));
+        $stmt = $this->db->pdo()->prepare(
+            self::BASE_SELECT
+                . " WHERE c.deleted_at IS NULL AND LOWER(c.email) IN ($placeholders)"
+        );
+        $stmt->execute($emails);
+
+        $byEmail = [];
+
+        foreach ($stmt->fetchAll() as $row) {
+            $byEmail[strtolower((string) $row['email'])] = $row;
+        }
+
+        return $byEmail;
     }
 
     /**

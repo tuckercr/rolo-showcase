@@ -225,7 +225,7 @@ final class ContactController extends Controller
 
         // The follow-up queue = the dashboard list (overdue + due this week,
         // soonest first). When this contact is in it, offer "next in queue"
-        // so the owner can work through follow-ups without bouncing back.
+        // so Dana can work through follow-ups without bouncing back.
         $queue = $contacts->dueBy($this->todayLocal()->format('Y-m-d'));
         $queueIds = array_map(static fn(array $c): int => (int) $c['id'], $queue);
         $queueIndex = array_search((int) $contact['id'], $queueIds, true);

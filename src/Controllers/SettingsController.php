@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Models\CalendarConnectionModel;
 use App\Models\ReminderRuleModel;
 use App\Models\StageModel;
+use App\Services\GoogleCalendarService;
 
 final class SettingsController extends Controller
 {
@@ -124,6 +126,10 @@ final class SettingsController extends Controller
             'postedTypes' => $postedTypes,
             'postedDays' => $postedDays,
             'postedHiddenIds' => $postedHiddenIds,
+            'calendarConnection' => (new CalendarConnectionModel($this->db))
+                ->findForUser($this->auth->id()),
+            'calendarEnabled' => (new GoogleCalendarService($this->config))->isConfigured(),
+            'calendarFlash' => (string) ($_GET['calendar'] ?? ''),
         ]);
     }
 }

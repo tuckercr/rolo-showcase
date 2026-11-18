@@ -1,4 +1,4 @@
--- Audit trail for the agent-facing API (the integration spec): every
+-- Audit trail for the agent-facing API (Dana's integration spec): every
 -- request is recorded with the token that made it. Also the basis for the
 -- per-token rate limit (requests in the last minute).
 

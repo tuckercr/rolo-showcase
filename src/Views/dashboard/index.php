@@ -95,7 +95,7 @@ $rowClick = static fn(int $id): string => "if (!event.target.closest("
         <?php if ($rows === []) : ?>
             <p class="mt-2 text-sm text-brand-muted">Nothing here. 🎉</p>
         <?php else : ?>
-            <div class="mt-2 bg-white rounded-lg shadow overflow-x-auto">
+            <div class="mt-2 bg-white rounded-lg shadow overflow-x-auto relative">
                 <table class="w-full text-sm">
                     <thead class="text-left text-brand-muted border-b">
                         <tr>
@@ -181,7 +181,7 @@ $rowClick = static fn(int $id): string => "if (!event.target.closest("
             More than 30 days past their follow-up, or nothing scheduled at all.
             Log a touch, snooze, or move them to Dormant.
         </p>
-        <div class="mt-2 bg-white rounded-lg shadow overflow-x-auto">
+        <div class="mt-2 bg-white rounded-lg shadow overflow-x-auto relative">
             <table class="w-full text-sm">
                 <thead class="text-left text-brand-muted border-b">
                     <tr>

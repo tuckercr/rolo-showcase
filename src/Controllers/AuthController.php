@@ -23,6 +23,18 @@ final class AuthController extends Controller
             return $this->redirect('/');
         }
 
+        // Stash the intended destination (?next=, set by the front
+        // controller) in the session, where it survives the Google OAuth
+        // round trip the same way oauth_state does. A plain /login visit
+        // clears any stale one from an abandoned earlier attempt.
+        $next = self::safeNext((string) ($_GET['next'] ?? ''));
+
+        if ($next !== null) {
+            $_SESSION['login_next'] = $next;
+        } else {
+            unset($_SESSION['login_next']);
+        }
+
         // The dev stub is only offered locally; Google Sign-In appears
         // whenever the OAuth client is configured (production always).
         $devUsers = $this->config->isLocal() ? (new UserModel($this->db))->all() : [];
@@ -98,7 +110,7 @@ final class AuthController extends Controller
 
         $this->auth->loginAs((int) $user['id']);
 
-        return $this->redirect('/');
+        return $this->redirect($this->consumeLoginNext());
     }
 
     public function devLogin(): string
@@ -119,7 +131,7 @@ final class AuthController extends Controller
 
         $this->auth->loginAs($userId);
 
-        return $this->redirect('/');
+        return $this->redirect($this->consumeLoginNext());
     }
 
     public function logout(): string
@@ -128,5 +140,27 @@ final class AuthController extends Controller
         $this->auth->logout();
 
         return $this->redirect('/login');
+    }
+
+    /**
+     * Where sign-in should land: the destination stashed by showLogin, or
+     * the dashboard. One use only.
+     */
+    private function consumeLoginNext(): string
+    {
+        $next = (string) ($_SESSION['login_next'] ?? '');
+        unset($_SESSION['login_next']);
+
+        return self::safeNext($next) ?? '/';
+    }
+
+    /**
+     * A safe sign-in destination is a local absolute path: one leading '/'
+     * (so https://evil and protocol-relative //evil are both out) and no
+     * control characters — ?next= is in the URL, so anyone can craft it.
+     */
+    private static function safeNext(string $next): ?string
+    {
+        return preg_match('#^/(?![/\\\\])[^\r\n]*$#', $next) === 1 ? $next : null;
     }
 }

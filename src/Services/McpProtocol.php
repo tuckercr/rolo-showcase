@@ -25,7 +25,7 @@ final class McpProtocol
 
     private const SERVER_INFO = ['name' => 'Rolo CRM', 'version' => '1.0.0'];
 
-    private const INSTRUCTIONS = 'Rolo is a consultancy\'s CRM. Read tools return live data. '
+    private const INSTRUCTIONS = 'Rolo is Data Story Strategy\'s CRM. Read tools return live data. '
         . 'Write tools (propose_*) NEVER change the CRM directly: each call queues a proposal that '
         . 'a human approves or rejects in Rolo. Pass an idempotency_key on writes so retries cannot '
         . 'queue duplicates, and use get_proposal to check whether a proposal was approved.';

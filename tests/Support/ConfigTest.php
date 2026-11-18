@@ -60,6 +60,15 @@ final class ConfigTest extends TestCase
         $this->assertSame(['U0456EFGH', 'U0123ABCD'], $config->slackDebriefUsers);
     }
 
+    public function testParsesSlackOpsUsers(): void
+    {
+        $config = Config::fromEnv([
+            'SLACK_OPS_USERS' => ' U0123ABCD, ,U0456EFGH ',
+        ] + $this->validEnv());
+
+        $this->assertSame(['U0123ABCD', 'U0456EFGH'], $config->slackOpsUsers);
+    }
+
     public function testMalformedSlackUserMapEntriesAreDroppedNotFatal(): void
     {
         $config = Config::fromEnv([
@@ -77,6 +86,7 @@ final class ConfigTest extends TestCase
         $this->assertSame('', $config->slackSigningSecret);
         $this->assertSame([], $config->slackUserMap);
         $this->assertSame([], $config->slackDebriefUsers);
+        $this->assertSame([], $config->slackOpsUsers);
     }
 
     public function testRejectsMissingRequiredKey(): void

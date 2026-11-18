@@ -51,7 +51,7 @@ abstract class Controller
     }
 
     /**
-     * "Today" as the signed-in user experiences it (APP_TIMEZONE), for date fields and
+     * "Today" as Dana experiences it (APP_TIMEZONE), for date fields and
      * reminder math — not UTC "today", which flips a day early in the evening.
      */
     protected function todayLocal(): \DateTimeImmutable

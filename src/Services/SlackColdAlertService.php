@@ -124,12 +124,26 @@ final class SlackColdAlertService
                         $last !== '' ? $last : 'never',
                     ),
                 ],
-                'accessory' => [
-                    'type' => 'button',
-                    'text' => ['type' => 'plain_text', 'text' => 'Open'],
-                    'url' => sprintf('%s/contacts/%d', $url, $id),
-                    'action_id' => 'open_' . $id,
-                    'value' => '{"a":"open"}',
+            ];
+            // Open + Edit per row: Edit opens the stage form, so a contact
+            // that is cold because it is over can be moved to Dormant or
+            // Closed right from the alert (Colin, 2026-11-16).
+            $blocks[] = [
+                'type' => 'actions',
+                'elements' => [
+                    [
+                        'type' => 'button',
+                        'text' => ['type' => 'plain_text', 'text' => 'Open'],
+                        'url' => sprintf('%s/contacts/%d', $url, $id),
+                        'action_id' => 'open_' . $id,
+                        'value' => json_encode(['a' => 'open', 'c' => $id], JSON_THROW_ON_ERROR),
+                    ],
+                    [
+                        'type' => 'button',
+                        'text' => ['type' => 'plain_text', 'text' => 'Edit'],
+                        'action_id' => 'edit_' . $id,
+                        'value' => json_encode(['a' => 'edit', 'c' => $id], JSON_THROW_ON_ERROR),
+                    ],
                 ],
             ];
         }

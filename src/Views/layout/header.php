@@ -11,6 +11,15 @@ use App\Support\View;
  */
 
 $headTitle = $pageTitle . ' · Rolo';
+
+$navLinks = [
+    '/' => 'Dashboard',
+    '/contacts' => 'Contacts',
+    '/organizations' => 'Organizations',
+    '/attachments' => 'Files',
+    '/settings' => 'Settings',
+    '/help' => 'Help',
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -23,31 +32,86 @@ $headTitle = $pageTitle . ' · Rolo';
         <a href="/" class="font-serif text-xl text-brand-ink">
             Rolo<span class="text-brand-red">.</span>
         </a>
-        <a href="/" class="text-sm text-brand-inksoft hover:text-brand-red">Dashboard</a>
-        <a href="/contacts" class="text-sm text-brand-inksoft hover:text-brand-red">Contacts</a>
-        <a href="/organizations" class="text-sm text-brand-inksoft hover:text-brand-red">Organizations</a>
-        <a href="/attachments" class="text-sm text-brand-inksoft hover:text-brand-red">Files</a>
-        <a href="/settings" class="text-sm text-brand-inksoft hover:text-brand-red">Settings</a>
-        <a href="/help" class="text-sm text-brand-inksoft hover:text-brand-red">Help</a>
-        <?php if (($pendingProposals ?? 0) > 0) : ?>
-            <a href="/proposals"
-               class="text-sm text-brand-red font-medium hover:underline">
-                Approvals (<?= (int) $pendingProposals ?>)
+
+        <div class="hidden md:flex items-center gap-6 flex-1">
+            <?php foreach ($navLinks as $href => $label) : ?>
+                <a href="<?= View::e($href) ?>"
+                   class="text-sm text-brand-inksoft hover:text-brand-red"><?= View::e($label) ?></a>
+            <?php endforeach ?>
+            <?php if (($pendingProposals ?? 0) > 0) : ?>
+                <a href="/proposals"
+                   class="text-sm text-brand-red font-medium hover:underline">
+                    Approvals (<?= (int) $pendingProposals ?>)
+                </a>
+            <?php endif ?>
+            <a href="/contacts/new"
+               class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-1 rounded whitespace-nowrap">
+                + Add contact
             </a>
-        <?php endif ?>
-        <a href="/contacts/new"
-           class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-1 rounded">
-            + Add contact
-        </a>
-        <div class="ml-auto flex items-center gap-3 text-sm text-brand-muted">
+            <div class="ml-auto flex items-center gap-3 text-sm text-brand-muted">
+                <?php if ($currentUser !== null) : ?>
+                    <span><?= View::e((string) $currentUser['name']) ?></span>
+                    <form method="post" action="/logout">
+                        <?= Csrf::field() ?>
+                        <button type="submit" class="hover:text-brand-red underline">Sign out</button>
+                    </form>
+                <?php endif ?>
+            </div>
+        </div>
+
+        <div class="md:hidden ml-auto flex items-center gap-4">
+            <?php if (($pendingProposals ?? 0) > 0) : ?>
+                <a href="/proposals"
+                   class="text-sm text-brand-red font-medium hover:underline whitespace-nowrap">
+                    Approvals (<?= (int) $pendingProposals ?>)
+                </a>
+            <?php endif ?>
+            <button type="button" id="nav-toggle" aria-expanded="false" aria-controls="nav-menu"
+                    aria-label="Menu" class="p-1 -mr-1 text-brand-inksoft hover:text-brand-red">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                    <path d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div id="nav-menu" hidden class="md:hidden border-t border-brand-sand px-4 pt-3 pb-4">
+        <div class="flex flex-col gap-3">
+            <?php foreach ($navLinks as $href => $label) : ?>
+                <a href="<?= View::e($href) ?>"
+                   class="text-sm text-brand-inksoft hover:text-brand-red py-0.5"><?= View::e($label) ?></a>
+            <?php endforeach ?>
+            <a href="/contacts/new"
+               class="text-sm bg-brand-red hover:bg-brand-reddark text-white px-3 py-1.5 rounded self-start">
+                + Add contact
+            </a>
             <?php if ($currentUser !== null) : ?>
-                <span><?= View::e((string) $currentUser['name']) ?></span>
-                <form method="post" action="/logout">
-                    <?= Csrf::field() ?>
-                    <button type="submit" class="hover:text-brand-red underline">Sign out</button>
-                </form>
+                <div class="flex items-center gap-3 text-sm text-brand-muted border-t border-brand-sand pt-3">
+                    <span><?= View::e((string) $currentUser['name']) ?></span>
+                    <form method="post" action="/logout">
+                        <?= Csrf::field() ?>
+                        <button type="submit" class="hover:text-brand-red underline">Sign out</button>
+                    </form>
+                </div>
             <?php endif ?>
         </div>
     </div>
 </nav>
+<script>
+    (function () {
+        var button = document.getElementById('nav-toggle');
+        var menu = document.getElementById('nav-menu');
+
+        if (!button || !menu) {
+            return;
+        }
+
+        button.addEventListener('click', function () {
+            var open = menu.hidden;
+            menu.hidden = !open;
+            button.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+    })();
+</script>
 <main class="max-w-5xl mx-auto px-4 py-8">

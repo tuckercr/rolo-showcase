@@ -225,7 +225,7 @@ final class ActivityController extends Controller
     }
 
     /**
-     * Delete a logged interaction (typo cleanup — owner request), then
+     * Delete a logged interaction (typo cleanup — Dana's request), then
      * rebuild the contact's touch dates from the remaining history.
      *
      * @param array<string, string> $vars route parameters

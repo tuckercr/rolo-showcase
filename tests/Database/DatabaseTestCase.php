@@ -48,6 +48,7 @@ abstract class DatabaseTestCase extends TestCase
         'daily_summary_log',
         'slack_debrief_log',
         'slack_notice_log',
+        'calendar_connections',
     ];
 
     protected function setUp(): void

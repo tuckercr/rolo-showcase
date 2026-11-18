@@ -15,6 +15,7 @@ use App\Controllers\Api\ProposalApiController;
 use App\Controllers\ApprovalController;
 use App\Controllers\AttachmentController;
 use App\Controllers\AuthController;
+use App\Controllers\CalendarController;
 use App\Controllers\ContactController;
 use App\Controllers\CronController;
 use App\Controllers\DashboardController;
@@ -66,10 +67,16 @@ return static function (RouteCollector $r): void {
     // Help (how to connect AI assistants over MCP)
     $r->addRoute('GET', '/help', [HelpController::class, 'index']);
 
-    // Settings (cadence rules)
+    // Privacy (public — the OAuth consent screen links here)
+    $r->addRoute('GET', '/privacy', [HelpController::class, 'privacy']);
+
+    // Settings (cadence rules + Google Calendar connection)
     $r->addRoute('GET', '/settings', [SettingsController::class, 'index']);
     $r->addRoute('POST', '/settings', [SettingsController::class, 'save']);
     $r->addRoute('POST', '/settings/reset', [SettingsController::class, 'reset']);
+    $r->addRoute('GET', '/settings/calendar/connect', [CalendarController::class, 'connect']);
+    $r->addRoute('GET', '/settings/calendar/callback', [CalendarController::class, 'callback']);
+    $r->addRoute('POST', '/settings/calendar/disconnect', [CalendarController::class, 'disconnect']);
 
     // Agent API (read-only, piece 1) — bearer-token auth inside the
     // controllers, no session; /api/* bypasses the session gate in index.php
@@ -110,11 +117,13 @@ return static function (RouteCollector $r): void {
     // Scheduled jobs (public route, guarded by CRON_SECRET instead of a session)
     $r->addRoute(['GET', 'POST'], '/cron/daily-summary', [CronController::class, 'dailySummary']);
     $r->addRoute(['GET', 'POST'], '/cron/slack-debrief', [CronController::class, 'slackDebrief']);
+    $r->addRoute('POST', '/cron/deployed', [CronController::class, 'deployed']);
 
     // Slack interactivity + the /rolo slash command (stateless; Slack's
     // request signature is the auth)
     $r->addRoute('POST', '/slack/interact', [SlackController::class, 'interact']);
     $r->addRoute('POST', '/slack/command', [SlackController::class, 'command']);
+    $r->addRoute('POST', '/slack/events', [SlackController::class, 'events']);
 
     // Organizations
     $r->addRoute('GET', '/organizations', [OrganizationController::class, 'index']);

@@ -17,6 +17,9 @@ use App\Support\View;
  *      validation error, null when rendering saved state; same for the next two
  * @var array<int|string, mixed>|null $postedDays
  * @var list<int>|null $postedHiddenIds
+ * @var array<string, mixed>|null $calendarConnection this user's row, or null
+ * @var bool $calendarEnabled Google OAuth client + APP_URL configured
+ * @var string $calendarFlash ?calendar= outcome from the connect flow
  */
 
 include __DIR__ . '/../layout/header.php';
@@ -65,7 +68,7 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
         </p>
     <?php endif ?>
 
-    <form method="post" action="/settings" class="mt-4 bg-white rounded-lg shadow overflow-x-auto">
+    <form method="post" action="/settings" class="mt-4 bg-white rounded-lg shadow overflow-x-auto relative">
         <?= Csrf::field() ?>
         <table class="w-full text-sm">
             <thead class="text-left text-brand-muted border-b">
@@ -165,6 +168,73 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
             and the default visibility: only Leads and Closed / Not a Fit hidden.
         </span>
     </form>
+</section>
+
+<section class="mt-10 max-w-3xl">
+    <h2 class="text-lg font-semibold text-brand-ink">Google Calendar</h2>
+
+    <div class="mt-3 bg-brand-cream2 border border-brand-sand rounded-lg px-4 py-3 text-sm text-brand-inksoft">
+        <p>
+            Connect your calendar and the evening Slack debrief adds a short
+            <strong>&ldquo;from your calendar today&rdquo;</strong> section: meetings whose
+            attendees match a contact&rsquo;s email, each with a Log button that
+            opens the usual form prefilled with the meeting title.
+        </p>
+        <p class="mt-2 text-xs text-brand-muted">
+            Access is read-only and per person: connecting your calendar never shows
+            it to anyone else, and Rolo never writes to it. Nothing is logged
+            automatically; every entry still goes through the Log form.
+        </p>
+    </div>
+
+    <?php
+    $calendarFlashes = [
+        'connected' => [true, 'Calendar connected.'],
+        'disconnected' => [true, 'Calendar disconnected.'],
+        'failed' => [false, 'Google didn\'t complete the connection. Please try again.'],
+        'no_scope' => [false, 'The calendar permission wasn\'t granted. Try again and leave the '
+            . 'calendar checkbox ticked on Google\'s consent screen.'],
+        'not_configured' => [false, 'Google OAuth isn\'t configured on this install.'],
+    ];
+    ?>
+    <?php if (isset($calendarFlashes[$calendarFlash])) : ?>
+        <?php [$ok, $message] = $calendarFlashes[$calendarFlash]; ?>
+        <p class="mt-4 text-sm rounded-lg px-4 py-2 border <?= $ok
+            ? 'text-green-700 bg-green-50 border-green-200'
+            : 'text-brand-red bg-red-50 border-red-200' ?>">
+            <?= View::e($message) ?>
+        </p>
+    <?php endif ?>
+
+    <?php if ($calendarConnection !== null) : ?>
+        <div class="mt-4 flex items-center gap-4 bg-white rounded-lg shadow px-4 py-3">
+            <p class="text-sm text-brand-ink flex-1">
+                Connected as <strong><?= View::e((string) $calendarConnection['google_email']) ?></strong>
+                <span class="text-brand-muted">
+                    since <?= View::e(substr((string) $calendarConnection['connected_at'], 0, 10)) ?>
+                </span>
+            </p>
+            <form method="post" action="/settings/calendar/disconnect">
+                <?= Csrf::field() ?>
+                <button type="submit"
+                        class="text-sm text-brand-inksoft border border-brand-sand hover:bg-brand-cream2
+                               rounded-lg px-4 py-2">
+                    Disconnect
+                </button>
+            </form>
+        </div>
+    <?php elseif ($calendarEnabled) : ?>
+        <a href="/settings/calendar/connect"
+           class="mt-4 inline-block bg-brand-red hover:bg-brand-reddark text-white rounded-lg px-5 py-2
+                  text-sm font-medium">
+            Connect Google Calendar
+        </a>
+    <?php else : ?>
+        <p class="mt-4 text-sm text-brand-muted">
+            Google OAuth isn&rsquo;t configured on this install, so the calendar
+            can&rsquo;t be connected yet.
+        </p>
+    <?php endif ?>
 </section>
 
 <?php include __DIR__ . '/../layout/footer.php';

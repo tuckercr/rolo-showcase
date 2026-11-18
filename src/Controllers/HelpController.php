@@ -24,4 +24,17 @@ final class HelpController extends Controller
             'appHost' => (string) parse_url($appUrl, PHP_URL_HOST),
         ]);
     }
+
+    /**
+     * Public privacy page (no session; listed in $publicRoutes): the OAuth
+     * consent screen's privacy policy link points here, so Google reviewers
+     * and connecting users can read it without signing in. It states how
+     * Google user data (sign-in identity, read-only calendar) is used.
+     */
+    public function privacy(): string
+    {
+        return $this->render('help/privacy', [
+            'pageTitle' => 'Privacy',
+        ]);
+    }
 }

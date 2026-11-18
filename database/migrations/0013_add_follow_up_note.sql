@@ -1,4 +1,4 @@
--- Owner request (2026-09-23): when "Follow-up needed" is checked on a
+-- Dana's request (2026-09-23): when "Follow-up needed" is checked on a
 -- logged interaction, a short note describes WHAT needs doing. Shown on the
 -- activity entry, the dashboard queue, and the daily summary email while
 -- that interaction is the contact's latest touch.

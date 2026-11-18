@@ -15,7 +15,7 @@ final class ReminderRuleModel
     ];
 
     /**
-     * The consultancy's SOP cadence numbers — the same values seeded by migration
+     * Dana's SOP cadence numbers — the same values seeded by migration
      * 0002 and restored by "Reset to defaults" on the settings page.
      * A stage absent here (Closed / Not a Fit) gets no rule = no reminder.
      */

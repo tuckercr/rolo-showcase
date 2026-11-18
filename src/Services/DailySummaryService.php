@@ -176,7 +176,9 @@ final class DailySummaryService
         ));
 
         return [
-            'appUrl' => $this->config->appUrl !== '' ? $this->config->appUrl : 'https://crm.example.com',
+            'appUrl' => $this->config->appUrl !== ''
+                ? $this->config->appUrl
+                : 'https://crm.example.com',
             'overdue' => $overdue,
             'dueToday' => $dueToday,
             'goingColdCount' => count($goingCold),

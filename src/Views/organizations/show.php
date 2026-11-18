@@ -54,7 +54,7 @@ include __DIR__ . '/../layout/header.php';
             <a href="/contacts/new" class="text-brand-red hover:underline">Add one</a>.
         </p>
     <?php else : ?>
-        <div class="mt-2 bg-white rounded-lg shadow overflow-x-auto">
+        <div class="mt-2 bg-white rounded-lg shadow overflow-x-auto relative">
             <table class="w-full text-sm">
                 <thead class="text-left text-brand-muted border-b">
                     <tr>

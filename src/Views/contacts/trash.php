@@ -26,7 +26,7 @@ include __DIR__ . '/../layout/header.php';
 <?php if ($contacts === []) : ?>
     <p class="mt-8 text-sm text-brand-muted">The trash is empty.</p>
 <?php else : ?>
-    <div class="mt-4 bg-white rounded-lg shadow overflow-x-auto">
+    <div class="mt-4 bg-white rounded-lg shadow overflow-x-auto relative">
         <table class="w-full text-sm">
             <thead class="text-left text-brand-muted border-b">
                 <tr>

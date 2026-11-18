@@ -59,7 +59,7 @@ $lowSpace = $freeBytes !== null && $freeBytes < 2_147_483_648; // < 2 GB
         when logging an interaction on a contact&rsquo;s page.
     </p>
 <?php else : ?>
-    <div class="mt-4 bg-white rounded-lg shadow overflow-x-auto">
+    <div class="mt-4 bg-white rounded-lg shadow overflow-x-auto relative">
         <table class="w-full text-sm">
             <thead class="text-left text-brand-muted border-b">
                 <tr>

@@ -11,6 +11,10 @@
     <file>tests</file>
     <file>bin</file>
 
+    <!-- PHP only: bin/ holds a JavaScript reference copy of the Cloudflare
+         Worker, which PSR-12 has no business judging. -->
+    <exclude-pattern>*.js</exclude-pattern>
+
     <rule ref="PSR12"/>
 
     <rule ref="Generic.PHP.RequireStrictTypes"/>

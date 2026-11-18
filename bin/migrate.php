@@ -2,7 +2,7 @@
 
 /**
  * Apply pending database migrations: php bin/migrate.php
- * Uses the DB_* credentials from .env — point them at the production database to
+ * Uses the DB_* credentials from .env — point them at the IONOS database to
  * migrate production, or at a local MariaDB for development.
  */
 

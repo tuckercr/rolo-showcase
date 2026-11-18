@@ -1,4 +1,4 @@
--- Documents attached to logged interactions (owner request #2).
+-- Documents attached to logged interactions (Dana's request #2).
 -- Files live on disk OUTSIDE the web root (storage/attachments) under
 -- random names; original filenames exist only in this table for display.
 -- Downloads go through the auth-gated /attachments/{id} route.

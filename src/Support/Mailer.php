@@ -10,7 +10,7 @@ use RuntimeException;
 
 /**
  * Thin wrapper over PHPMailer. Uses SMTP when SMTP_HOST is configured,
- * otherwise PHP's mail() — which works on the shared host for domains
+ * otherwise PHP's mail() — which works on the IONOS host for domains
  * hosted there.
  */
 final class Mailer
@@ -43,7 +43,9 @@ final class Mailer
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
             }
 
-            $from = $this->config->mailFrom !== '' ? $this->config->mailFrom : 'rolo@example.com';
+            $from = $this->config->mailFrom !== ''
+                ? $this->config->mailFrom
+                : 'rolo@example.com';
             $mail->setFrom($from, 'Rolo CRM');
 
             foreach ($to as $address) {

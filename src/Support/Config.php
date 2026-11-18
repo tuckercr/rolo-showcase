@@ -22,6 +22,8 @@ final readonly class Config
      *        only these people may press the bot's buttons
      * @param list<string> $slackDebriefUsers Slack member ids who get the
      *        evening debrief DM (approval DMs go to everyone in the map)
+     * @param list<string> $slackOpsUsers Slack member ids who get devops
+     *        notices (deploys, migrations, failures) — normally just Colin
      */
     public function __construct(
         public string $appEnv,
@@ -49,6 +51,7 @@ final readonly class Config
         public string $slackSigningSecret = '',
         public array $slackUserMap = [],
         public array $slackDebriefUsers = [],
+        public array $slackOpsUsers = [],
     ) {
     }
 
@@ -95,6 +98,10 @@ final readonly class Config
             slackDebriefUsers: array_values(array_filter(array_map(
                 'trim',
                 explode(',', self::optionalString($env, 'SLACK_DEBRIEF_USERS')),
+            ), static fn(string $u): bool => $u !== '')),
+            slackOpsUsers: array_values(array_filter(array_map(
+                'trim',
+                explode(',', self::optionalString($env, 'SLACK_OPS_USERS')),
             ), static fn(string $u): bool => $u !== '')),
         );
     }

@@ -130,7 +130,7 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
         <div class="sm:col-span-2">
             <label class="text-sm font-medium text-brand-inksoft">Tags</label>
             <input type="text" name="tags" value="<?= $value('tags') ?>"
-                   placeholder="Comma-separated, e.g. Lakeview, Academic Innovation"
+                   placeholder="Comma-separated, e.g. Nashville, Academic Innovation"
                    class="<?= $inputClass ?>">
             <?= $fieldError('tags') ?>
             <p class="mt-1 text-xs text-brand-muted">

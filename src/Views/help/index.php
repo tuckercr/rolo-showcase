@@ -38,7 +38,7 @@ include __DIR__ . '/../layout/header.php';
             <li>You need your private connector link. It looks like
                 <code class="text-xs bg-brand-cream2 rounded px-1.5 py-0.5">
                     <?= View::e($appUrl) ?>/mcp/&lt;your&nbsp;key&gt;</code>
-                and the administrator sends it by direct message. Treat it like a password:
+                and Colin sends it by direct message. Treat it like a password:
                 it IS your key to the CRM, so never post it anywhere public.</li>
             <li>In Claude, open <strong>Settings &gt; Connectors</strong> and click
                 <strong>Add custom connector</strong>.</li>
@@ -56,7 +56,7 @@ include __DIR__ . '/../layout/header.php';
             the server URL
             <code class="text-xs bg-brand-cream2 rounded px-1.5 py-0.5"><?= View::e($appUrl) ?>/mcp</code>,
             the root domain <code class="text-xs bg-brand-cream2 rounded px-1.5 py-0.5"><?= View::e($appHost) ?></code>,
-            and Bearer Token authentication with your key. Ask the administrator to help set
+            and Bearer Token authentication with your key. Ask Colin to help set
             up the connector pack the first time.
         </p>
     </section>
@@ -66,10 +66,10 @@ include __DIR__ . '/../layout/header.php';
         <ul class="mt-2 ml-5 list-disc text-sm text-brand-inksoft leading-relaxed space-y-1.5">
             <li>&ldquo;Who&rsquo;s overdue in Rolo this week?&rdquo;</li>
             <li>&ldquo;What&rsquo;s my history with [contact]? Anything I should know before our call?&rdquo;</li>
-            <li>&ldquo;Log a coffee meeting with [contact] today. We discussed the Lakeview event.
+            <li>&ldquo;Log a coffee meeting with [contact] today. We discussed the Nashville event.
                 Follow up next Friday to send the deck.&rdquo;</li>
             <li>&ldquo;Add [company] as an organization in Rolo.&rdquo;</li>
-            <li>&ldquo;Tag everyone at [organization] with PDA-Lakeview.&rdquo;</li>
+            <li>&ldquo;Tag everyone at [organization] with PDA-Nashville.&rdquo;</li>
         </ul>
         <p class="mt-3 text-sm text-brand-muted leading-relaxed">
             Anything that logs, creates, or edits shows up on the Approvals page
@@ -87,12 +87,12 @@ include __DIR__ . '/../layout/header.php';
                 caches the tool list per conversation. If that doesn&rsquo;t fix it,
                 toggle the Rolo connector off and on in Settings &gt; Connectors.</li>
             <li><strong>&ldquo;That token is not recognized&rdquo;</strong>: your key has
-                changed. Ask the administrator for a fresh link, then update the connector.</li>
+                changed. Ask Colin for a fresh link, then update the connector.</li>
             <li><strong>A proposal was rejected with an error</strong>: the change
                 clashed with the live data (for example, the contact was deleted in
                 the meantime). Ask the assistant to look up the current state and
                 propose again.</li>
-            <li><strong>You think the link leaked</strong>: tell the administrator and the key is
+            <li><strong>You think the link leaked</strong>: tell Colin and the key is
                 rotated in minutes. Old links stop working immediately.</li>
         </ul>
     </section>

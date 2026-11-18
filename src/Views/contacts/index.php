@@ -82,7 +82,7 @@ $sortHeader = static function (string $key, string $label) use ($query, $status,
         No contacts found. <a href="/contacts/new" class="text-brand-red hover:underline">Add the first one</a>.
     </p>
 <?php else : ?>
-    <div class="mt-4 bg-white rounded-lg shadow overflow-x-auto">
+    <div class="mt-4 bg-white rounded-lg shadow overflow-x-auto relative">
         <table class="w-full text-sm">
             <thead class="text-left text-brand-muted border-b">
                 <tr>

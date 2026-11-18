@@ -1,4 +1,4 @@
--- Organizations get a LinkedIn URL alongside the website (owner request:
+-- Organizations get a LinkedIn URL alongside the website (Dana's request:
 -- a place for a URL on company info).
 
 ALTER TABLE organizations

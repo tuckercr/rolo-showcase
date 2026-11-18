@@ -25,7 +25,7 @@ INSERT INTO reminder_rules (relationship_status, rule_type, value_days) VALUES
     ('Active client', 'cadence_from_last_touch', 30),
     ('Dormant', 'fixed_days', 180);
 
--- The two demo users (replace with your own allowlisted people). google_sub is filled in on each person's
+-- The two allowlisted collaborators. google_sub is filled in on each person's
 -- first Google Sign-In (matched by email — see docs/SCHEMA.md Authentication).
 INSERT INTO users (name, email, role) VALUES
     ('Colin', 'colin@example.com', 'admin'),
