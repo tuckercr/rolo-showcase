@@ -316,8 +316,14 @@ git clone <repo> && cd rolo
 composer install
 cp .env.example .env                   # point DB_* at a local MariaDB
 php bin/migrate.php                    # creates schema + seeds stages/cadence rules
+php bin/seed_demo.php you@example.com  # optional: fictional data, dated relative to today
 php -S 127.0.0.1:8000 -t public public/index.php
 ```
+
+The seed gives a fresh install a living dashboard on day one: a fictional
+consultancy with contacts overdue, due today, and going cold, weeks of
+activity history, and three agent proposals waiting in the approval queue.
+Pass your email so Google Sign-In recognizes you.
 
 With `APP_ENV=local` the login page offers one-click dev sign-in, no Google
 credentials needed. Tests and linting:
