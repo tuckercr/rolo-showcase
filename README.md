@@ -333,6 +333,10 @@ vendor/bin/phpunit
 vendor/bin/phpcs
 ```
 
+## Author
+
+Built by [Colin Tucker](https://fangjet.com), a senior Android engineer. More projects at [fangjet.com/projects](https://fangjet.com/projects).
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE). Free for any use, commercial included.
