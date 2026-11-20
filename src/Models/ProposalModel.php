@@ -47,13 +47,16 @@ final class ProposalModel
         array $payload,
         string $summary,
         ?string $idempotencyKey,
+        ?int $proposedBy = null,
     ): int {
         $stmt = $this->db->pdo()->prepare(
-            'INSERT INTO api_proposals (token_name, action, payload, summary, idempotency_key)
-             VALUES (:token_name, :action, :payload, :summary, :idempotency_key)'
+            'INSERT INTO api_proposals
+                (token_name, proposed_by, action, payload, summary, idempotency_key)
+             VALUES (:token_name, :proposed_by, :action, :payload, :summary, :idempotency_key)'
         );
         $stmt->execute([
             'token_name' => $tokenName,
+            'proposed_by' => $proposedBy,
             'action' => $action,
             'payload' => (string) json_encode($payload, JSON_UNESCAPED_UNICODE),
             'summary' => mb_substr($summary, 0, 500),
@@ -69,7 +72,10 @@ final class ProposalModel
     public function pending(): array
     {
         return $this->db->pdo()->query(
-            "SELECT * FROM api_proposals WHERE status = 'pending' ORDER BY id"
+            "SELECT p.*, pb.name AS proposed_by_name
+             FROM api_proposals p
+             LEFT JOIN users pb ON p.proposed_by = pb.id
+             WHERE p.status = 'pending' ORDER BY p.id"
         )->fetchAll();
     }
 
@@ -86,9 +92,10 @@ final class ProposalModel
     public function recentlyDecided(int $limit = 20): array
     {
         return $this->db->pdo()->query(
-            "SELECT p.*, u.name AS reviewed_by_name
+            "SELECT p.*, u.name AS reviewed_by_name, pb.name AS proposed_by_name
              FROM api_proposals p
              LEFT JOIN users u ON p.reviewed_by = u.id
+             LEFT JOIN users pb ON p.proposed_by = pb.id
              WHERE p.status != 'pending'
              ORDER BY p.reviewed_at DESC, p.id DESC
              LIMIT " . (int) $limit
@@ -104,19 +111,34 @@ final class ProposalModel
         $stmt->execute(['id' => $id]);
     }
 
-    public function decide(int $id, string $status, int $reviewerId, ?string $error = null): void
-    {
+    /**
+     * Record a decision — a compare-and-set, so two concurrent deciders
+     * (both approval DMs, or two browser tabs) can't both win. Returns
+     * whether THIS call changed the row; callers must apply a proposal only
+     * after winning. $fromStatus exists for the apply-failed path, which
+     * walks an already-won 'approved' back to 'rejected' with the error.
+     */
+    public function decide(
+        int $id,
+        string $status,
+        int $reviewerId,
+        ?string $error = null,
+        string $fromStatus = 'pending',
+    ): bool {
         $stmt = $this->db->pdo()->prepare(
             'UPDATE api_proposals
              SET status = :status, reviewed_by = :reviewed_by,
                  reviewed_at = CURRENT_TIMESTAMP, error = :error
-             WHERE id = :id AND status = \'pending\''
+             WHERE id = :id AND status = :from_status'
         );
         $stmt->execute([
             'status' => $status,
             'reviewed_by' => $reviewerId,
             'error' => $error === null ? null : mb_substr($error, 0, 500),
             'id' => $id,
+            'from_status' => $fromStatus,
         ]);
+
+        return $stmt->rowCount() > 0;
     }
 }

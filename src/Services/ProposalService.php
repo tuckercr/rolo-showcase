@@ -11,9 +11,12 @@ use App\Models\ProposalModel;
 use App\Models\ReminderRuleModel;
 use App\Models\StageModel;
 use App\Models\TagModel;
+use App\Models\TaskModel;
+use App\Models\UserModel;
 use App\Support\Config;
 use App\Support\Database;
 use App\Support\SlackClient;
+use App\Support\TaskLabels;
 use App\Support\Url;
 use DateTimeImmutable;
 use InvalidArgumentException;
@@ -33,6 +36,9 @@ final class ProposalService
         'change_tags',
         'log_activity',
         'create_organization',
+        'create_task',
+        'update_task',
+        'complete_task',
     ];
 
     private const UPDATABLE_FIELDS = [
@@ -58,13 +64,20 @@ final class ProposalService
      * Validate and normalize an agent payload. Returns the payload to store
      * plus a human-readable summary for the review screen.
      *
+     * $proposedBy is the person behind a per-user token (null for the
+     * legacy shared ones). Only the task actions read it: it is who 'me'
+     * means, and the default owner of a proposed task.
+     *
      * @param array<string, mixed> $payload
      * @return array{0: array<string, mixed>, 1: string}
      * @throws InvalidArgumentException with an agent-presentable message
      */
-    public function validate(string $action, array $payload): array
+    public function validate(string $action, array $payload, ?int $proposedBy = null): array
     {
         return match ($action) {
+            'create_task' => $this->validateCreateTask($payload, $proposedBy),
+            'update_task' => $this->validateUpdateTask($payload, $proposedBy),
+            'complete_task' => $this->validateCompleteTask($payload),
             'create_contact' => $this->validateCreateContact($payload),
             'update_contact' => $this->validateUpdateContact($payload),
             'change_tags' => $this->validateChangeTags($payload),
@@ -88,6 +101,7 @@ final class ProposalService
         string $action,
         array $payload,
         ?string $fallbackIdempotencyKey = null,
+        ?int $proposedBy = null,
     ): array {
         $proposals = new ProposalModel($this->db);
 
@@ -103,9 +117,9 @@ final class ProposalService
             }
         }
 
-        [$clean, $summary] = $this->validate($action, $payload);
+        [$clean, $summary] = $this->validate($action, $payload, $proposedBy);
 
-        $id = $proposals->create($tokenName, $action, $clean, $summary, $key);
+        $id = $proposals->create($tokenName, $action, $clean, $summary, $key, $proposedBy);
 
         return [(array) $proposals->find($id), true];
     }
@@ -124,14 +138,413 @@ final class ProposalService
             throw new RuntimeException('Stored payload is not valid JSON.');
         }
 
+        $proposedBy = isset($proposal['proposed_by']) && $proposal['proposed_by'] !== null
+            ? (int) $proposal['proposed_by']
+            : null;
+
         match ((string) $proposal['action']) {
-            'create_contact' => $this->applyCreateContact($payload, $reviewerId),
+            'create_contact' => $this->applyCreateContact($payload, $reviewerId, $proposedBy),
             'update_contact' => $this->applyUpdateContact($payload, $reviewerId),
             'change_tags' => $this->applyChangeTags($payload),
             'log_activity' => $this->applyLogActivity($payload, $reviewerId),
             'create_organization' => $this->applyCreateOrganization($payload),
+            'create_task' => $this->applyCreateTask($payload, $reviewerId),
+            'update_task' => $this->applyUpdateTask($payload, $reviewerId),
+            'complete_task' => $this->applyCompleteTask($payload, $reviewerId),
             default => throw new RuntimeException('Unknown action.'),
         };
+    }
+
+    // ---- tasks -------------------------------------------------------------
+    //
+    // Task rules live in TaskService; this section only adapts them to the
+    // propose/review/commit pipeline. Validation runs twice on purpose:
+    // when the agent proposes (so a bad payload never reaches the queue)
+    // and again on approval (the linked contact may have been trashed, or
+    // the task deleted, while the proposal waited).
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{0: array<string, mixed>, 1: string}
+     */
+    private function validateCreateTask(array $payload, ?int $proposedBy): array
+    {
+        $input = $this->taskInput($payload, $proposedBy);
+
+        // No owner given: the task belongs to whoever's agent proposed it.
+        // The legacy shared tokens have nobody behind them, so theirs are
+        // shared, the same default create_contact uses for owner_id.
+        if (!array_key_exists('owner_id', $input)) {
+            $input['owner_id'] = $proposedBy;
+        }
+
+        $clean = $this->validTask($input, null);
+
+        $details = [];
+
+        if ($clean['due_date'] !== null) {
+            $details[] = 'due ' . (string) $clean['due_date'];
+        }
+
+        $about = $this->taskAbout($clean);
+
+        if ($about !== null) {
+            $details[] = 'about ' . $about;
+        }
+
+        $details[] = $clean['owner_id'] === null ? 'shared' : 'for ' . $this->userName((int) $clean['owner_id']);
+
+        return [$clean, sprintf('Create task "%s" (%s)', (string) $clean['title'], implode(', ', $details))];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function applyCreateTask(array $payload, int $reviewerId): void
+    {
+        $clean = $this->validTask($payload, null, RuntimeException::class);
+
+        (new TaskService($this->config, $this->db))->create($clean, $reviewerId);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{0: array<string, mixed>, 1: string}
+     */
+    private function validateUpdateTask(array $payload, ?int $proposedBy): array
+    {
+        $task = $this->requireTask($payload);
+        $changes = $this->taskInput($payload, $proposedBy);
+
+        if ($changes === []) {
+            throw new InvalidArgumentException(
+                'No updatable fields given (title, notes, due_date, owner, contact_id, organization_id).'
+            );
+        }
+
+        // Validate the merged result, but store only what the agent asked
+        // to change: approval re-merges onto the task as it is THEN, so a
+        // field someone edited in the meantime is not silently reverted.
+        $clean = $this->validTask($changes, $task);
+        $stored = array_intersect_key($clean, $changes);
+
+        return [
+            ['task_id' => (int) $task['id']] + $stored,
+            sprintf(
+                'Update task "%s": %s',
+                (string) $task['title'],
+                // The agent-facing name of the field, not the column.
+                implode(', ', str_replace('owner_id', 'owner', array_keys($stored))),
+            ),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function applyUpdateTask(array $payload, int $reviewerId): void
+    {
+        $task = (new TaskModel($this->db))->find((int) $payload['task_id']);
+
+        if ($task === null) {
+            throw new RuntimeException('Task no longer exists.');
+        }
+
+        $changes = array_intersect_key($payload, array_flip(TaskService::FIELDS));
+        $clean = $this->validTask($changes, $task, RuntimeException::class);
+
+        (new TaskService($this->config, $this->db))->update((int) $task['id'], $clean, $reviewerId);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{0: array<string, mixed>, 1: string}
+     */
+    private function validateCompleteTask(array $payload): array
+    {
+        $task = $this->requireTask($payload);
+        $completed = (bool) ($payload['completed'] ?? true);
+
+        return [
+            ['task_id' => (int) $task['id'], 'completed' => $completed],
+            sprintf('%s task "%s"', $completed ? 'Complete' : 'Reopen', (string) $task['title']),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function applyCompleteTask(array $payload, int $reviewerId): void
+    {
+        $taskId = (int) $payload['task_id'];
+
+        if ((new TaskModel($this->db))->find($taskId) === null) {
+            throw new RuntimeException('Task no longer exists.');
+        }
+
+        // Already in the asked-for state (someone ticked it meanwhile) is a
+        // success, not an error: the proposal's intent holds.
+        $service = new TaskService($this->config, $this->db);
+
+        if (($payload['completed'] ?? true) === true) {
+            $service->complete($taskId, $reviewerId);
+        } else {
+            $service->reopen($taskId, $reviewerId);
+        }
+    }
+
+    /**
+     * The task fields an agent sent, in TaskService's vocabulary: the
+     * agent-facing `owner` ('me', 'shared', an id, an email) becomes
+     * owner_id. Only keys that were actually sent are returned.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function taskInput(array $payload, ?int $proposedBy): array
+    {
+        $input = array_intersect_key($payload, array_flip(['title', 'notes', 'due_date']));
+
+        foreach (['contact_id', 'organization_id'] as $link) {
+            if (!array_key_exists($link, $payload)) {
+                continue;
+            }
+
+            if ($payload[$link] !== null && !is_int($payload[$link]) && !ctype_digit((string) $payload[$link])) {
+                throw new InvalidArgumentException($link . ' must be an integer id or null.');
+            }
+
+            $input[$link] = $payload[$link] === null ? null : (int) $payload[$link];
+        }
+
+        if (array_key_exists('owner', $payload)) {
+            $input['owner_id'] = (new OwnerResolver($this->db))->resolve((string) $payload['owner'], $proposedBy);
+        }
+
+        return $input;
+    }
+
+    /**
+     * Run TaskService's validation and surface the first problem as the
+     * given exception: InvalidArgumentException back to the agent at
+     * propose time, RuntimeException onto the proposal at approval time.
+     *
+     * @param array<string, mixed> $input
+     * @param array<string, mixed>|null $existing
+     * @param class-string<\Exception> $exception
+     * @return array<string, mixed> the full clean field set
+     */
+    private function validTask(
+        array $input,
+        ?array $existing,
+        string $exception = InvalidArgumentException::class,
+    ): array {
+        [$clean, $errors] = (new TaskService($this->config, $this->db))->validate($input, $existing);
+
+        if ($errors !== []) {
+            throw new $exception((string) reset($errors));
+        }
+
+        return $clean;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed> the task row
+     */
+    private function requireTask(array $payload): array
+    {
+        $task = (new TaskModel($this->db))->find((int) ($payload['task_id'] ?? 0));
+
+        if ($task === null) {
+            throw new InvalidArgumentException('Unknown task_id.');
+        }
+
+        return $task;
+    }
+
+    /**
+     * "Steve Marsh" or "Northfield Labs": what a task is about, null when it
+     * is free-floating.
+     *
+     * @param array<string, mixed> $fields contact_id / organization_id
+     */
+    private function taskAbout(array $fields): ?string
+    {
+        if (($fields['contact_id'] ?? null) !== null) {
+            $contact = (new ContactModel($this->db))->find((int) $fields['contact_id']);
+
+            return $contact === null ? null : (string) $contact['name'];
+        }
+
+        if (($fields['organization_id'] ?? null) !== null) {
+            $organization = (new OrganizationModel($this->db))->find((int) $fields['organization_id']);
+
+            return $organization === null ? null : (string) $organization['name'];
+        }
+
+        return null;
+    }
+
+    private function userName(int $userId): string
+    {
+        $user = (new UserModel($this->db))->find($userId);
+
+        return $user === null ? sprintf('user #%d', $userId) : (string) $user['name'];
+    }
+
+    /**
+     * Review-card value for one task field.
+     */
+    private function formatTaskValue(string $field, mixed $value): string
+    {
+        return match (true) {
+            $field === 'owner_id' => $value === null ? 'Shared' : $this->userName((int) $value),
+            $value === null || $value === '' => '(empty)',
+            $field === 'contact_id' => $this->taskAbout(['contact_id' => $value])
+                ?? sprintf('contact #%d', (int) $value),
+            $field === 'organization_id' => $this->taskAbout(['organization_id' => $value])
+                ?? sprintf('organization #%d', (int) $value),
+            default => (string) $value,
+        };
+    }
+
+    private const TASK_FIELD_LABELS = [
+        'title' => 'Task',
+        'due_date' => 'Due',
+        'owner_id' => 'Owner',
+        'contact_id' => 'Contact',
+        'organization_id' => 'Organization',
+        'notes' => 'Notes',
+    ];
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function describeCreateTask(array $payload): array
+    {
+        $rows = [];
+
+        foreach (self::TASK_FIELD_LABELS as $field => $label) {
+            $value = $payload[$field] ?? null;
+
+            // The title is the card's heading; empty optional fields are
+            // noise. Owner always shows: "Shared" is a decision worth seeing.
+            if ($field === 'title' || ($value === null && $field !== 'owner_id')) {
+                continue;
+            }
+
+            $rows[] = ['label' => $label, 'before' => null, 'after' => $this->formatTaskValue($field, $value)];
+        }
+
+        $missingLink = (($payload['contact_id'] ?? null) !== null || ($payload['organization_id'] ?? null) !== null)
+            && $this->taskAbout($payload) === null;
+
+        return [
+            'kind' => 'create_task',
+            'title' => 'New task: ' . (string) $payload['title'],
+            'contact' => null,
+            'rows' => $rows,
+            'consequence' => $missingLink
+                ? 'The record this task is about has since been deleted;'
+                    . ' approving will fail and the proposal will be marked rejected.'
+                : 'Tasks are separate from follow-ups: this changes no follow-up date.',
+            'consequence_level' => $missingLink ? 'warning' : 'info',
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function describeUpdateTask(array $payload): array
+    {
+        $task = (new TaskModel($this->db))->find((int) $payload['task_id']);
+
+        if ($task === null) {
+            return [
+                'kind' => 'missing_target',
+                'title' => 'Update task',
+                'consequence' => 'This task has since been deleted;'
+                    . ' approving will fail and the proposal will be marked rejected.',
+                'consequence_level' => 'warning',
+            ];
+        }
+
+        $rows = [];
+
+        foreach (self::TASK_FIELD_LABELS as $field => $label) {
+            if (!array_key_exists($field, $payload)) {
+                continue;
+            }
+
+            $before = $this->formatTaskValue($field, $task[$field] ?? null);
+            $after = $this->formatTaskValue($field, $payload[$field]);
+            $rows[] = ['label' => $label, 'before' => $before, 'after' => $after, 'changed' => $before !== $after];
+        }
+
+        return [
+            'kind' => 'update_task',
+            'title' => 'Update task: ' . (string) $task['title'],
+            'contact' => null,
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function describeCompleteTask(array $payload): array
+    {
+        $task = (new TaskModel($this->db))->find((int) $payload['task_id']);
+        $completing = ($payload['completed'] ?? true) === true;
+
+        if ($task === null) {
+            return [
+                'kind' => 'missing_target',
+                'title' => $completing ? 'Complete task' : 'Reopen task',
+                'consequence' => 'This task has since been deleted;'
+                    . ' approving will fail and the proposal will be marked rejected.',
+                'consequence_level' => 'warning',
+            ];
+        }
+
+        $rows = [];
+        $about = $this->taskAbout($task);
+
+        if ($about !== null) {
+            $rows[] = ['label' => 'About', 'before' => null, 'after' => $about];
+        }
+
+        if ($task['due_date'] !== null) {
+            $today = (new DateTimeImmutable('today', $this->config->appTimezone))->format('Y-m-d');
+            $rows[] = [
+                'label' => 'Due',
+                'before' => null,
+                'after' => (string) $task['due_date'] . (TaskLabels::isOverdue((string) $task['due_date'], $today)
+                    ? ' (overdue)'
+                    : ''),
+            ];
+        }
+
+        $alreadyThere = ($task['completed_at'] !== null) === $completing;
+
+        return [
+            'kind' => 'complete_task',
+            'title' => ($completing ? 'Complete task: ' : 'Reopen task: ') . (string) $task['title'],
+            'contact' => null,
+            'rows' => $rows,
+            'consequence' => $alreadyThere
+                ? ($completing
+                    ? 'This task is already done; approving changes nothing.'
+                    : 'This task is already open; approving changes nothing.')
+                : ($completing
+                    ? 'Ticks the task off. No follow-up date changes.'
+                    : 'Puts the task back on the open list.'),
+            'consequence_level' => 'info',
+        ];
     }
 
     // ---- create_contact ----------------------------------------------------
@@ -170,7 +583,7 @@ final class ProposalService
     /**
      * @param array<string, mixed> $payload
      */
-    private function applyCreateContact(array $payload, int $reviewerId): void
+    private function applyCreateContact(array $payload, int $reviewerId, ?int $proposedBy): void
     {
         $stage = (string) $payload['stage'];
 
@@ -186,6 +599,9 @@ final class ProposalService
             'title' => $payload['title'] ?? null,
             'relationship_status' => $stage,
             'relationship_type' => $payload['relationship_type'] ?? null,
+            // A per-user token's proposals default to that person as owner;
+            // the legacy shared tokens create shared contacts.
+            'owner_id' => $proposedBy,
             'email' => $payload['email'] ?? null,
             'phone' => $payload['phone'] ?? null,
             'linkedin_url' => $payload['linkedin_url'] ?? null,
@@ -264,6 +680,7 @@ final class ProposalService
             'title' => $payload['title'] ?? $contact['title'],
             'relationship_status' => $payload['stage'] ?? $contact['relationship_status'],
             'relationship_type' => $payload['relationship_type'] ?? $contact['relationship_type'],
+            'owner_id' => $contact['owner_id'],
             'email' => $payload['email'] ?? $contact['email'],
             'phone' => $payload['phone'] ?? $contact['phone'],
             'linkedin_url' => $payload['linkedin_url'] ?? $contact['linkedin_url'],
@@ -622,6 +1039,9 @@ final class ProposalService
                 'change_tags' => $this->describeChangeTags($payload),
                 'log_activity' => $this->describeLogActivity($payload),
                 'create_organization' => $this->describeCreateOrganization($payload),
+                'create_task' => $this->describeCreateTask($payload),
+                'update_task' => $this->describeUpdateTask($payload),
+                'complete_task' => $this->describeCompleteTask($payload),
                 default => ['kind' => 'unknown'],
             };
         } catch (\Throwable) {

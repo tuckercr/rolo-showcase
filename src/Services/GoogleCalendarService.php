@@ -184,7 +184,7 @@ final class GoogleCalendarService
      *
      * @param list<array<string, mixed>> $events raw Google event resources
      * @param array<string, array<string, mixed>> $contactsByEmail lowercase email => contact
-     * @return list<array{contact: array<string, mixed>, title: string, time: ?string}>
+     * @return list<array{contact: array<string, mixed>, title: string, time: ?string, start?: string}>
      */
     public static function matchEvents(
         array $events,
@@ -237,6 +237,10 @@ final class GoogleCalendarService
                     'contact' => $contact,
                     'title' => trim((string) ($event['summary'] ?? '')),
                     'time' => $time,
+                    // The raw RFC3339 start, so renderers can compare against
+                    // "now": a 4 PM meeting shown at noon is "you're
+                    // meeting", not "you met".
+                    'start' => $startRaw,
                 ];
             }
         }

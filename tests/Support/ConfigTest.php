@@ -49,6 +49,24 @@ final class ConfigTest extends TestCase
         $this->assertSame('', $config->dbPassword);
     }
 
+    public function testParsesApiUserTokensAndDropsUnusableEntries(): void
+    {
+        $config = Config::fromEnv([
+            'API_USER_TOKENS' => ' Colin@Example.com:aaaaaaaaaaaaaaaa , jess@example.com:short ,'
+                . 'noseparator,:missingemail1234,dana@example.com:bbbbbbbbbbbbbbbb',
+        ] + $this->validEnv());
+
+        $this->assertSame(
+            [
+                'colin@example.com' => 'aaaaaaaaaaaaaaaa',
+                'dana@example.com' => 'bbbbbbbbbbbbbbbb',
+            ],
+            $config->apiUserTokens,
+            'emails lowercase; short-token, separator-less and email-less entries dropped',
+        );
+        $this->assertSame([], Config::fromEnv($this->validEnv())->apiUserTokens);
+    }
+
     public function testParsesSlackUserMapAndDebriefUsers(): void
     {
         $config = Config::fromEnv([

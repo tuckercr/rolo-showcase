@@ -23,6 +23,8 @@ use App\Controllers\HelpController;
 use App\Controllers\OrganizationController;
 use App\Controllers\PhotoController;
 use App\Controllers\SettingsController;
+use App\Controllers\TagController;
+use App\Controllers\TaskController;
 use App\Controllers\SlackController;
 use FastRoute\RouteCollector;
 
@@ -47,6 +49,9 @@ return static function (RouteCollector $r): void {
     $r->addRoute('POST', '/contacts/{id:\d+}/trash', [ContactController::class, 'trash']);
     $r->addRoute('POST', '/contacts/{id:\d+}/restore', [ContactController::class, 'restore']);
     $r->addRoute('GET', '/contacts/{id:\d+}/photo', [PhotoController::class, 'show']);
+    // HMAC-signed, no session (public prefix in index.php) — Slack's image
+    // proxy fetches these to show headshots in the bot's messages.
+    $r->addRoute('GET', '/photo/{id:\d+}/{sig:[a-f0-9]{64}}', [PhotoController::class, 'signedShow']);
     $r->addRoute('POST', '/contacts/{id:\d+}/photo', [PhotoController::class, 'upload']);
     $r->addRoute('POST', '/contacts/{id:\d+}/photo/delete', [PhotoController::class, 'delete']);
     $r->addRoute('GET', '/contacts/{id:\d+}', [ContactController::class, 'show']);
@@ -59,6 +64,16 @@ return static function (RouteCollector $r): void {
     $r->addRoute('POST', '/activities/{id:\d+}', [ActivityController::class, 'update']);
     $r->addRoute('POST', '/activities/{id:\d+}/delete', [ActivityController::class, 'delete']);
 
+    // Tasks: one-off to-dos (list, edit form, and the small POST actions
+    // the dashboard, contact and organization pages submit to)
+    $r->addRoute('GET', '/tasks', [TaskController::class, 'index']);
+    $r->addRoute('POST', '/tasks', [TaskController::class, 'store']);
+    $r->addRoute('GET', '/tasks/{id:\d+}/edit', [TaskController::class, 'edit']);
+    $r->addRoute('POST', '/tasks/{id:\d+}', [TaskController::class, 'update']);
+    $r->addRoute('POST', '/tasks/{id:\d+}/complete', [TaskController::class, 'complete']);
+    $r->addRoute('POST', '/tasks/{id:\d+}/reopen', [TaskController::class, 'reopen']);
+    $r->addRoute('POST', '/tasks/{id:\d+}/delete', [TaskController::class, 'delete']);
+
     // Attachments (files live outside the web root; this is the only way in)
     $r->addRoute('GET', '/attachments', [AttachmentController::class, 'index']);
     $r->addRoute('GET', '/attachments/{id:\d+}', [AttachmentController::class, 'download']);
@@ -66,9 +81,15 @@ return static function (RouteCollector $r): void {
 
     // Help (how to connect AI assistants over MCP)
     $r->addRoute('GET', '/help', [HelpController::class, 'index']);
+    $r->addRoute('GET', '/help/tasks', [HelpController::class, 'tasks']);
 
     // Privacy (public — the OAuth consent screen links here)
     $r->addRoute('GET', '/privacy', [HelpController::class, 'privacy']);
+
+    // Tags (list with counts, rename/merge, describe, delete)
+    $r->addRoute('GET', '/tags', [TagController::class, 'index']);
+    $r->addRoute('POST', '/tags/{id:\d+}', [TagController::class, 'update']);
+    $r->addRoute('POST', '/tags/{id:\d+}/delete', [TagController::class, 'delete']);
 
     // Settings (cadence rules + Google Calendar connection)
     $r->addRoute('GET', '/settings', [SettingsController::class, 'index']);
@@ -87,6 +108,8 @@ return static function (RouteCollector $r): void {
     $r->addRoute('GET', '/api/v1/stages', [CrmApiController::class, 'stagesIndex']);
     $r->addRoute('GET', '/api/v1/activities', [CrmApiController::class, 'activitiesIndex']);
     $r->addRoute('GET', '/api/v1/tags', [CrmApiController::class, 'tagsIndex']);
+    $r->addRoute('GET', '/api/v1/tasks', [CrmApiController::class, 'tasksIndex']);
+    $r->addRoute('GET', '/api/v1/tasks/{id:\d+}', [CrmApiController::class, 'tasksShow']);
 
     // Agent API writes (piece 2): every call queues a proposal for human
     // review at /proposals; nothing writes to the CRM directly
@@ -98,6 +121,13 @@ return static function (RouteCollector $r): void {
         'POST',
         '/api/v1/contacts/{id:\d+}/activities',
         [ProposalApiController::class, 'proposeLogActivity'],
+    );
+    $r->addRoute('POST', '/api/v1/tasks', [ProposalApiController::class, 'proposeCreateTask']);
+    $r->addRoute('PATCH', '/api/v1/tasks/{id:\d+}', [ProposalApiController::class, 'proposeUpdateTask']);
+    $r->addRoute(
+        'POST',
+        '/api/v1/tasks/{id:\d+}/complete',
+        [ProposalApiController::class, 'proposeCompleteTask'],
     );
     $r->addRoute('GET', '/api/v1/proposals/{id:\d+}', [ProposalApiController::class, 'show']);
 

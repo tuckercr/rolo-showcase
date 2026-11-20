@@ -65,10 +65,35 @@ final class SlackColdAlertServiceTest extends DatabaseTestCase
         self::assertStringNotContainsString('Warm Wendy', $json);
         self::assertStringContainsString('1 older ones are still cold', $json);
 
-        // The non-forced rerun the same day must dedupe (or hit the Monday
-        // gate, depending on when the suite runs); either way, no second DM.
+        // A forced run is a manual test: it must NOT claim the day's dedupe
+        // slot, or testing would silence the real Monday send.
+        self::assertSame(
+            0,
+            (int) self::db()->pdo()->query('SELECT COUNT(*) FROM slack_notice_log')->fetchColumn(),
+        );
+
+        // Claim the slot the way a scheduled send would, then rerun: the
+        // Monday gate or the dedupe keeps it quiet whatever weekday the
+        // suite runs on.
+        self::db()->pdo()
+            ->prepare('INSERT INTO slack_notice_log (kind, notice_date, slack_user) VALUES (?, ?, ?)')
+            ->execute([SlackColdAlertService::KIND, $today->format('Y-m-d'), 'U_DANA']);
         $service->run();
         self::assertCount(1, $slack->messages);
+    }
+
+    public function testAlertsFollowTheOwnerLens(): void
+    {
+        $today = new DateTimeImmutable('today', new DateTimeZone('America/New_York'));
+        // Newly cold (31 days late), but owned by user 1 — not U_DANA's.
+        $id = $this->insertContact('Colins Cold Carl', $today->modify('-31 days')->format('Y-m-d'));
+        self::db()->pdo()->prepare('UPDATE contacts SET owner_id = 1 WHERE id = ?')->execute([$id]);
+
+        $slack = new RecordingSlackClient($this->config());
+        $outcome = (new SlackColdAlertService($this->config(), self::db(), $slack))->run(force: true);
+
+        self::assertCount(0, $slack->messages, 'another person\'s cold contact is not my alert');
+        self::assertStringContainsString('nothing newly cold (1 already cold)', $outcome);
     }
 
     public function testNothingNewlyColdSendsNothing(): void

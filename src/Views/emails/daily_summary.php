@@ -17,10 +17,14 @@ use App\Support\View;
  * @var string $yesterdayLabel
  * @var array<int, string> $photoCids contact id => inline-attachment cid
  * @var int $pendingApprovals agent proposals waiting on the Approvals page
+ * @var string $lensLabel personalized-scope note, '' on the everyone view
+ * @var list<array<string, mixed>> $tasks open tasks overdue or due today,
+ *      decorated (TaskLabels::decorate)
  */
 
 $photoCids = $photoCids ?? [];
 $goingColdCount = (int) ($goingColdCount ?? 0);
+$tasks = $tasks ?? [];
 $pendingApprovals = (int) ($pendingApprovals ?? 0);
 
 $avatarCell = static function (int $contactId, string $name) use ($photoCids): string {
@@ -86,6 +90,12 @@ $contactRows = static function (array $contacts) use ($appUrl, $rowStyle, $avata
         <span style="color:#8A857C;font-size:13px;"> &middot; <?= View::e($todayLabel) ?></span>
     </td></tr>
 
+    <?php if (($lensLabel ?? '') !== '') : ?>
+        <tr><td style="padding:14px 28px 0;font-size:12px;color:#8A857C;">
+            <?= View::e((string) $lensLabel) ?>
+        </td></tr>
+    <?php endif ?>
+
     <?php if ($pendingApprovals > 0) : ?>
         <tr><td style="padding:20px 28px 0;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
@@ -123,6 +133,44 @@ $contactRows = static function (array $contacts) use ($appUrl, $rowStyle, $avata
     </td></tr>
 
     <tr><td style="padding:0 28px 28px;">
+
+        <?php if ($tasks !== []) : ?>
+            <h2 style="<?= $headingStyle ?>color:#5A5650;">
+                <?= ($lensLabel ?? '') !== '' ? 'Your tasks' : 'Tasks' ?> (<?= count($tasks) ?>)
+            </h2>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <?php foreach ($tasks as $task) : ?>
+                    <tr>
+                        <td style="width:22px;padding:8px 0 8px 12px;border-bottom:1px solid #DCD3C2;
+                                   vertical-align:top;">
+                            <span style="display:inline-block;width:12px;height:12px;margin-top:2px;
+                                         border:1px solid #5A5650;border-radius:3px;"></span>
+                        </td>
+                        <td style="<?= $rowStyle ?>">
+                            <?= View::e((string) $task['title']) ?>
+                            <?php if ($task['contact_id'] !== null) : ?>
+                                <span style="color:#8A857C;">&middot;</span>
+                                <a href="<?= View::e($appUrl . '/contacts/' . (int) $task['contact_id']) ?>"
+                                   style="color:#C1272D;font-weight:bold;text-decoration:none;">
+                                    <?= View::e((string) $task['contact_name']) ?></a>
+                            <?php elseif (($task['organization_name'] ?? null) !== null) : ?>
+                                <span style="color:#8A857C;">&middot;
+                                    <?= View::e((string) $task['organization_name']) ?></span>
+                            <?php endif ?>
+                        </td>
+                        <td align="right" style="<?= $rowStyle ?>white-space:nowrap;<?=
+                            $task['is_overdue'] ? 'font-weight:bold;color:#111111;' : '' ?>">
+                            <?= View::e((string) $task['due_label']) ?>
+                        </td>
+                    </tr>
+                <?php endforeach ?>
+            </table>
+            <p style="margin:8px 0 0;font-size:12px;color:#8A857C;">
+                Tick them off on the
+                <a href="<?= View::e($appUrl) ?>" style="color:#C1272D;">dashboard</a>
+                or with /rolo tasks in Slack.
+            </p>
+        <?php endif ?>
 
         <?php if ($dueToday !== []) : ?>
             <h2 style="<?= $headingStyle ?>color:#5A5650;">

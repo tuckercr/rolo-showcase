@@ -40,6 +40,7 @@ abstract class DatabaseTestCase extends TestCase
         'activities',
         'contact_tags',
         'tags',
+        'tasks',
         'opportunities',
         'contacts',
         'organizations',

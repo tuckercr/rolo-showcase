@@ -26,7 +26,7 @@ final class GoogleAuthServiceTest extends TestCase
             'sub' => '110169484474386276334',
             'email' => 'colin@example.com',
             'email_verified' => true,
-            'name' => 'Colin Tucker',
+            'name' => 'Colin',
         ];
     }
 

@@ -8,9 +8,11 @@ use App\Support\View;
  * @var list<array<string, mixed>> $contacts
  * @var list<array<string, mixed>> $stages
  * @var list<array<string, mixed>> $allTags name + contact_count
+ * @var list<array<string, mixed>> $owners assignable users for the Owner filter
  * @var string $query
  * @var string $status
  * @var string $tag
+ * @var string $owner '' (anyone), 'shared', or a user id as a string
  * @var string $sort current sort key (whitelisted by the controller)
  * @var string $dir 'asc'|'desc'
  * @var string $today
@@ -19,13 +21,24 @@ use App\Support\View;
 
 include __DIR__ . '/../layout/header.php';
 
-$sortHeader = static function (string $key, string $label) use ($query, $status, $tag, $sort, $dir): string {
+$sortHeader = static function (
+    string $key,
+    string $label,
+) use (
+    $query,
+    $status,
+    $tag,
+    $owner,
+    $sort,
+    $dir,
+): string {
     $isCurrent = $sort === $key;
     $nextDir = $isCurrent && $dir === 'asc' ? 'desc' : 'asc';
     $qs = http_build_query([
         'q' => $query,
         'status' => $status,
         'tag' => $tag,
+        'owner' => $owner,
         'sort' => $key,
         'dir' => $nextDir,
     ]);
@@ -69,6 +82,16 @@ $sortHeader = static function (string $key, string $label) use ($query, $status,
             <?php endforeach ?>
         </select>
     <?php endif ?>
+    <select name="owner" class="border border-brand-sand rounded-lg px-3 py-2 text-sm bg-white">
+        <option value="">Any owner</option>
+        <?php foreach ($owners as $ownerRow) : ?>
+            <option value="<?= (int) $ownerRow['id'] ?>"
+                <?= $owner === (string) $ownerRow['id'] ? 'selected' : '' ?>>
+                <?= View::e((string) $ownerRow['name']) ?>
+            </option>
+        <?php endforeach ?>
+        <option value="shared" <?= $owner === 'shared' ? 'selected' : '' ?>>Shared</option>
+    </select>
     <input type="hidden" name="sort" value="<?= View::e($sort) ?>">
     <input type="hidden" name="dir" value="<?= View::e($dir) ?>">
     <button type="submit"
@@ -91,7 +114,7 @@ $sortHeader = static function (string $key, string $label) use ($query, $status,
                     <th class="px-4 py-2 font-medium"><?= $sortHeader('stage', 'Stage') ?></th>
                     <th class="px-4 py-2 font-medium"><?= $sortHeader('last_touch', 'Last contacted') ?></th>
                     <th class="px-4 py-2 font-medium"><?= $sortHeader('next_touch', 'Next follow-up') ?></th>
-                    <th class="px-4 py-2 font-medium">Added by</th>
+                    <th class="px-4 py-2 font-medium">Owner</th>
                     <th class="px-4 py-2"></th>
                 </tr>
             </thead>
@@ -132,7 +155,9 @@ $sortHeader = static function (string $key, string $label) use ($query, $status,
                             <?= View::e($next === '' ? '—' : $next) ?>
                         </td>
                         <td class="px-4 py-2 text-brand-muted">
-                            <?= View::e((string) $contact['created_by_name']) ?>
+                            <?= $contact['owner_id'] === null
+                                ? 'Shared'
+                                : View::e((string) $contact['owner_name']) ?>
                         </td>
                         <td class="px-4 py-2 text-right">
                             <a href="/contacts/<?= (int) $contact['id'] ?>/edit"

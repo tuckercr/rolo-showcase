@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\ContactModel;
+use App\Models\TaskModel;
 use App\Support\Config;
 use App\Support\Database;
+use App\Support\Mrkdwn;
+use App\Support\PhotoLink;
 use App\Support\SlackClient;
 use DateTimeImmutable;
 
@@ -14,7 +17,8 @@ use DateTimeImmutable;
  * The weekday evening debrief DM (docs/SLACK_BOT_SPEC.md): one message per
  * configured person listing the contacts whose follow-up was due today or
  * earlier, each with Log touch / Snooze / Skip buttons that post back to
- * /slack/interact.
+ * /slack/interact. Since 2026-11-20 it closes with the person's open tasks
+ * that are overdue or due today, each with a Done button.
  *
  * The cron trigger double-fires in UTC (21:00 + 22:00) so one of them is
  * always 5 PM Eastern regardless of DST; isSendTime() plus the
@@ -30,6 +34,9 @@ final class SlackDebriefService
 
     /** At most this many calendar matches get a suggestion row. */
     public const MAX_CALENDAR_SUGGESTIONS = 4;
+
+    /** At most this many tasks get a Done row; the rest are summarized. */
+    public const MAX_TASKS = 5;
 
     public function __construct(
         private readonly Config $config,
@@ -63,9 +70,10 @@ final class SlackDebriefService
             );
         }
 
-        $due = $this->dueForDebrief($today);
         $sent = 0;
         $skipped = 0;
+        $failed = 0;
+        $dueCounts = [];
 
         foreach ($this->config->slackDebriefUsers as $slackUser) {
             if (!$force && $this->alreadySentFor($today, $slackUser)) {
@@ -73,8 +81,23 @@ final class SlackDebriefService
                 continue;
             }
 
-            [$text, $blocks] = $this->buildMessage($due, $today, $this->calendarSuggestions($slackUser, $today));
-            $this->slack->postMessage($slackUser, $text, $blocks);
+            $userId = $this->config->slackUserMap[$slackUser] ?? null;
+            $due = $this->dueForDebrief($today, $userId);
+
+            [$text, $blocks] = $this->buildMessage(
+                $due,
+                $today,
+                $this->calendarSuggestions($slackUser, $today),
+                $this->tasksForDebrief($today, $userId),
+            );
+
+            // One person's broken DM must not stop the other's.
+            try {
+                $this->slack->postMessage($slackUser, $text, $blocks);
+            } catch (\Throwable) {
+                $failed++;
+                continue;
+            }
 
             // A forced run is a manual test; it must not claim the day's
             // slot and silence the scheduled evening send (bitten 11-10).
@@ -83,9 +106,16 @@ final class SlackDebriefService
             }
 
             $sent++;
+            $dueCounts[] = count($due);
         }
 
-        return sprintf('debrief: sent %d, already sent %d, due contacts %d', $sent, $skipped, count($due));
+        return sprintf(
+            'debrief: sent %d, already sent %d, due contacts %s%s',
+            $sent,
+            $skipped,
+            $dueCounts === [] ? '0' : implode('/', $dueCounts),
+            $failed > 0 ? sprintf(', %d DM(s) failed', $failed) : '',
+        );
     }
 
     /**
@@ -102,20 +132,62 @@ final class SlackDebriefService
         }
 
         $today = (new DateTimeImmutable('now', $this->config->appTimezone))->format('Y-m-d');
-        $due = $this->dueForDebrief($today);
+        $userId = $this->config->slackUserMap[$slackUser] ?? null;
+        $due = $this->dueForDebrief($today, $userId);
 
-        [$text, $blocks] = $this->buildMessage($due, $today, $this->calendarSuggestions($slackUser, $today));
+        [$text, $blocks] = $this->buildMessage(
+            $due,
+            $today,
+            $this->calendarSuggestions($slackUser, $today),
+            $this->tasksForDebrief($today, $userId),
+        );
         $this->slack->postMessage($slackUser, $text, $blocks);
 
         return sprintf('debrief: sent on demand to %s (%d due)', $slackUser, count($due));
     }
 
     /**
+     * One person's debrief list: the dashboard's Mine lens (their contacts
+     * plus shared ones) when the Slack account maps to a rolo user, the
+     * combined view otherwise.
+     *
      * @return list<array<string, mixed>>
      */
-    private function dueForDebrief(string $today): array
+    private function dueForDebrief(string $today, ?int $forUserId): array
     {
-        return (new ContactModel($this->db))->dueExcludingCold($today);
+        return (new ContactModel($this->db))->dueExcludingCold($today, $forUserId);
+    }
+
+    /**
+     * One person's tasks for the debrief: open, and overdue or due today,
+     * under the same Mine lens as the contacts (their own plus shared).
+     * Undated and later-dated tasks are not an end-of-day question.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function tasksForDebrief(string $today, ?int $forUserId): array
+    {
+        return (new TaskModel($this->db))->open($forUserId, $today, includeUndated: false);
+    }
+
+    /**
+     * The debrief's closing task section (empty when nothing is due).
+     *
+     * @param list<array<string, mixed>> $tasks
+     * @return list<array<string, mixed>>
+     */
+    private function taskBlocks(array $tasks, string $today): array
+    {
+        return (new SlackTaskBlocks($this->config))->listBlocks(
+            $tasks,
+            sprintf(
+                ':ballot_box_with_check: *%d task%s due:*',
+                count($tasks),
+                count($tasks) === 1 ? '' : 's',
+            ),
+            $today,
+            self::MAX_TASKS,
+        );
     }
 
     public static function isSendTime(DateTimeImmutable $nowLocal): bool
@@ -130,7 +202,7 @@ final class SlackDebriefService
      * doesn't send: Google being down, a revoked token or a missing mapping
      * all collapse to "no calendar section today".
      *
-     * @return list<array{contact: array<string, mixed>, title: string, time: ?string}>
+     * @return list<array{contact: array<string, mixed>, title: string, time: ?string, start?: string}>
      */
     private function calendarSuggestions(string $slackUser, string $today): array
     {
@@ -145,17 +217,20 @@ final class SlackDebriefService
 
     /**
      * @param list<array<string, mixed>> $due
-     * @param list<array{contact: array<string, mixed>, title: string, time: ?string}> $calendar
+     * @param list<array{contact: array<string, mixed>, title: string, time: ?string, start?: string}> $calendar
+     * @param list<array<string, mixed>> $tasks open tasks overdue or due today
      * @return array{0: string, 1: list<array<string, mixed>>}
      */
-    private function buildMessage(array $due, string $today, array $calendar = []): array
+    private function buildMessage(array $due, string $today, array $calendar = [], array $tasks = []): array
     {
         if ($due === []) {
             $blocks = [[
                 'type' => 'section',
                 'text' => [
                     'type' => 'mrkdwn',
-                    'text' => ':tada: *Nothing was due today.* Anything worth logging? '
+                    'text' => ($tasks === []
+                        ? ':tada: *Nothing was due today.* Anything worth logging? '
+                        : '*No follow-ups were due today.* Anything worth logging? ')
                         . $this->appLink('Open Rolo'),
                 ],
             ]];
@@ -164,7 +239,20 @@ final class SlackDebriefService
                 $blocks[] = $block;
             }
 
-            return ['Nothing was due today. Anything worth logging?', $blocks];
+            foreach ($this->taskBlocks($tasks, $today) as $block) {
+                $blocks[] = $block;
+            }
+
+            return [
+                $tasks === []
+                    ? 'Nothing was due today. Anything worth logging?'
+                    : sprintf(
+                        'No follow-ups were due today, and you have %d task%s due.',
+                        count($tasks),
+                        count($tasks) === 1 ? '' : 's',
+                    ),
+                $blocks,
+            ];
         }
 
         // Name the two buckets honestly ("29 due today" annoyed Colin when
@@ -217,6 +305,10 @@ final class SlackDebriefService
             $blocks[] = $block;
         }
 
+        foreach ($this->taskBlocks($tasks, $today) as $block) {
+            $blocks[] = $block;
+        }
+
         $blocks[] = [
             'type' => 'context',
             'elements' => [[
@@ -236,19 +328,40 @@ final class SlackDebriefService
      * cal_-prefixed action_ids so a contact who is also in the due prompts
      * doesn't produce duplicate ids in one message.
      *
-     * @param list<array{contact: array<string, mixed>, title: string, time: ?string}> $calendar
+     * Public because /rolo meetings renders the same rows on demand — the
+     * debrief section and the command must never drift apart.
+     *
+     * $when is 'yesterday', 'today' or 'tomorrow' and steers the copy.
+     * Tomorrow is a prep view, not a logging one: future tense, no Log
+     * button (the meeting hasn't happened), and a context line of what you
+     * know (last touch + the human detail) instead. $logDate, when set,
+     * rides the Log payload so the modal's date opens on the day the
+     * meeting actually was — yesterday's catch-up must not log as today.
+     *
+     * @param list<array{contact: array<string, mixed>, title: string, time: ?string, start?: string}> $calendar
      * @return list<array<string, mixed>>
      */
-    private function calendarBlocks(array $calendar): array
-    {
+    public function calendarBlocks(
+        array $calendar,
+        string $when = 'today',
+        ?string $logDate = null,
+        ?DateTimeImmutable $now = null,
+    ): array {
         if ($calendar === []) {
             return [];
         }
 
-        $url = $this->config->appUrl !== '' ? $this->config->appUrl : 'https://crm.example.com';
+        $now ??= new DateTimeImmutable('now', $this->config->appTimezone);
+        $prep = $when === 'tomorrow';
+        $url = $this->config->baseUrl();
         $blocks = [[
             'type' => 'section',
-            'text' => ['type' => 'mrkdwn', 'text' => ':calendar: *From your calendar today:*'],
+            'text' => [
+                'type' => 'mrkdwn',
+                'text' => $prep
+                    ? ':calendar: *On your calendar tomorrow:*'
+                    : sprintf(':calendar: *From your calendar %s:*', $when),
+            ],
         ]];
 
         foreach (array_slice($calendar, 0, self::MAX_CALENDAR_SUGGESTIONS) as $suggestion) {
@@ -256,43 +369,67 @@ final class SlackDebriefService
             $id = (int) $contact['id'];
             $org = (string) ($contact['organization_name'] ?? '');
             $title = $suggestion['title'] !== '' ? $suggestion['title'] : 'a meeting';
+            // Tense is per meeting, not per list: today's 4 PM shown at noon
+            // hasn't happened yet.
+            $future = $prep || self::startsAfter($suggestion, $now);
 
-            $blocks[] = [
+            $row = [
                 'type' => 'section',
                 'text' => [
                     'type' => 'mrkdwn',
                     'text' => sprintf(
-                        'You met *%s*%s %s: _%s_',
-                        (string) $contact['name'],
-                        $org !== '' ? ' (' . $org . ')' : '',
-                        $suggestion['time'] !== null ? 'at ' . $suggestion['time'] : 'today',
-                        $title,
+                        $future ? 'You\'re meeting *%s*%s %s: _%s_' : 'You met *%s*%s %s: _%s_',
+                        Mrkdwn::esc((string) $contact['name']),
+                        $org !== '' ? ' (' . Mrkdwn::esc($org) . ')' : '',
+                        $suggestion['time'] !== null ? 'at ' . $suggestion['time'] : $when,
+                        // Anyone can put anything in a calendar invite title.
+                        Mrkdwn::esc($title),
                     ),
                 ],
             ];
+            $photo = PhotoLink::accessory($this->config, $contact);
+
+            if ($photo !== null) {
+                $row['accessory'] = $photo;
+            }
+
+            $blocks[] = $row;
+
+            if ($prep) {
+                $lastTouch = (string) ($contact['last_touch_date'] ?? '');
+                $detail = (string) ($contact['human_detail'] ?? '');
+                $blocks[] = [
+                    'type' => 'context',
+                    'elements' => [[
+                        'type' => 'mrkdwn',
+                        'text' => ($lastTouch !== '' ? 'Last touch ' . $lastTouch : 'Never touched')
+                            . ($detail !== '' ? ' · ' . Mrkdwn::esc($detail) : ''),
+                    ]],
+                ];
+            }
+
+            $logButton = [
+                'type' => 'button',
+                'text' => ['type' => 'plain_text', 'text' => 'Log it'],
+                'style' => 'primary',
+                'action_id' => 'cal_log_' . $id,
+                'value' => json_encode([
+                    'a' => 'log',
+                    'c' => $id,
+                    'v' => 'cal',
+                    's' => mb_substr($title, 0, 150),
+                ] + ($logDate !== null ? ['d' => $logDate] : []), JSON_THROW_ON_ERROR),
+            ];
+            $openButton = [
+                'type' => 'button',
+                'text' => ['type' => 'plain_text', 'text' => 'Open'],
+                'url' => sprintf('%s/contacts/%d', $url, $id),
+                'action_id' => 'cal_open_' . $id,
+                'value' => json_encode(['a' => 'open', 'c' => $id], JSON_THROW_ON_ERROR),
+            ];
             $blocks[] = [
                 'type' => 'actions',
-                'elements' => [
-                    [
-                        'type' => 'button',
-                        'text' => ['type' => 'plain_text', 'text' => 'Log it'],
-                        'style' => 'primary',
-                        'action_id' => 'cal_log_' . $id,
-                        'value' => json_encode([
-                            'a' => 'log',
-                            'c' => $id,
-                            'v' => 'cal',
-                            's' => mb_substr($title, 0, 150),
-                        ], JSON_THROW_ON_ERROR),
-                    ],
-                    [
-                        'type' => 'button',
-                        'text' => ['type' => 'plain_text', 'text' => 'Open'],
-                        'url' => sprintf('%s/contacts/%d', $url, $id),
-                        'action_id' => 'cal_open_' . $id,
-                        'value' => json_encode(['a' => 'open', 'c' => $id], JSON_THROW_ON_ERROR),
-                    ],
-                ],
+                'elements' => $prep ? [$openButton] : [$logButton, $openButton],
             ];
         }
 
@@ -302,14 +439,33 @@ final class SlackDebriefService
                 'elements' => [[
                     'type' => 'mrkdwn',
                     'text' => sprintf(
-                        'Plus %d more meetings that matched contacts today.',
+                        'Plus %d more meetings that matched contacts %s.',
                         count($calendar) - self::MAX_CALENDAR_SUGGESTIONS,
+                        $when,
                     ),
                 ]],
             ];
         }
 
         return $blocks;
+    }
+
+    /**
+     * @param array{start?: string} $suggestion
+     */
+    private static function startsAfter(array $suggestion, DateTimeImmutable $now): bool
+    {
+        $start = (string) ($suggestion['start'] ?? '');
+
+        if ($start === '') {
+            return false;
+        }
+
+        try {
+            return new DateTimeImmutable($start) > $now;
+        } catch (\Exception) {
+            return false;
+        }
     }
 
     /**
@@ -334,13 +490,20 @@ final class SlackDebriefService
 
         $line = sprintf(
             'Did you reach *%s*%s?%s',
-            (string) $contact['name'],
-            $org !== '' ? ' (' . $org . ')' : '',
+            Mrkdwn::esc((string) $contact['name']),
+            $org !== '' ? ' (' . Mrkdwn::esc($org) . ')' : '',
             $dueDate < $today ? sprintf(' _(due %s)_', $dueDate) : '',
         );
 
+        $section = ['type' => 'section', 'text' => ['type' => 'mrkdwn', 'text' => $line]];
+        $photo = PhotoLink::accessory($this->config, $contact);
+
+        if ($photo !== null) {
+            $section['accessory'] = $photo;
+        }
+
         return [
-            ['type' => 'section', 'text' => ['type' => 'mrkdwn', 'text' => $line]],
+            $section,
             [
                 'type' => 'actions',
                 'elements' => [
@@ -386,7 +549,7 @@ final class SlackDebriefService
      */
     private function openButton(int $contactId): array
     {
-        $url = $this->config->appUrl !== '' ? $this->config->appUrl : 'https://crm.example.com';
+        $url = $this->config->baseUrl();
 
         return [
             'type' => 'button',
@@ -399,9 +562,7 @@ final class SlackDebriefService
 
     private function appLink(string $label): string
     {
-        $url = $this->config->appUrl !== '' ? $this->config->appUrl : 'https://crm.example.com';
-
-        return sprintf('<%s|%s>', $url, $label);
+        return sprintf('<%s|%s>', $this->config->baseUrl(), $label);
     }
 
     private function alreadySentFor(string $date, string $slackUser): bool

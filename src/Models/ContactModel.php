@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Support\Database;
+use App\Support\OwnerLens;
 
 final class ContactModel
 {
@@ -39,14 +40,27 @@ final class ContactModel
                 ORDER BY a.activity_date DESC, a.id DESC
                 LIMIT 1) AS follow_up_note,
                o.name AS organization_name,
+               ou.name AS owner_name,
                cu.name AS created_by_name,
                uu.name AS updated_by_name
         FROM contacts c
         LEFT JOIN organizations o ON c.organization_id = o.id
         LEFT JOIN stages st ON c.relationship_status = st.name
+        LEFT JOIN users ou ON c.owner_id = ou.id
         JOIN users cu ON c.created_by = cu.id
         JOIN users uu ON c.updated_by = uu.id
     ';
+
+    /**
+     * WHERE fragment for a user's personalized follow-up lens: their own
+     * contacts plus shared (unowned) ones. NULL owner means shared, see
+     * migration 0021. The rule itself lives in OwnerLens, shared with
+     * every other owned entity.
+     */
+    private static function ownerLens(string $placeholder): string
+    {
+        return OwnerLens::mine('c.owner_id', $placeholder);
+    }
 
     public function __construct(private readonly Database $db)
     {
@@ -62,10 +76,21 @@ final class ContactModel
         string $sort = 'name',
         string $dir = 'asc',
         string $tag = '',
+        string $owner = '',
     ): array {
         $sql = self::BASE_SELECT;
         $where = [];
         $params = [];
+
+        // Owner filter: '' = anyone, 'shared' = unowned contacts only,
+        // a numeric string = that user's owned contacts. The controller
+        // validates the value; anything else falls through as "anyone".
+        $ownerFilter = OwnerLens::filter('c.owner_id', $owner);
+
+        if ($ownerFilter !== null) {
+            $where[] = $ownerFilter[0];
+            $params += $ownerFilter[1];
+        }
 
         if ($tag !== '') {
             $where[] = 'EXISTS (SELECT 1 FROM contact_tags ct
@@ -77,9 +102,9 @@ final class ContactModel
         if ($query !== '') {
             // Two placeholders for the same value: native prepares (emulation
             // off) reject reusing one named parameter twice in a statement.
-            $where[] = '(c.name LIKE :query_name OR o.name LIKE :query_org)';
-            $params['query_name'] = '%' . $query . '%';
-            $params['query_org'] = '%' . $query . '%';
+            $where[] = "(c.name LIKE :query_name ESCAPE '!' OR o.name LIKE :query_org ESCAPE '!')";
+            $params['query_name'] = '%' . Database::escapeLike($query) . '%';
+            $params['query_org'] = '%' . Database::escapeLike($query) . '%';
         }
 
         if ($status !== '') {
@@ -121,10 +146,21 @@ final class ContactModel
      * on the boundary and stay on the dashboard — Dana's snooze-looks-
      * buggy report (2026-07-22). Snoozing a week now clears the list.
      *
+     * $forUserId personalizes the list to that user's lens (their contacts
+     * plus shared ones); null keeps the combined everyone view.
+     *
      * @return list<array<string, mixed>>
      */
-    public function dueBy(string $today, int $horizonDays = 6): array
+    public function dueBy(string $today, int $horizonDays = 6, ?int $forUserId = null): array
     {
+        $params = ['today' => $today, 'horizon' => $horizonDays];
+        $lens = '';
+
+        if ($forUserId !== null) {
+            $lens = ' AND ' . self::ownerLens('for_user');
+            $params['for_user'] = $forUserId;
+        }
+
         $stmt = $this->db->pdo()->prepare(
             // Stages flagged hidden_from_follow_ups (Leads by default, see
             // /settings) never surface on the dashboard or in the email.
@@ -132,10 +168,11 @@ final class ContactModel
             WHERE c.next_touch_date IS NOT NULL
               AND c.deleted_at IS NULL
               AND COALESCE(st.hidden_from_follow_ups, 0) = 0
-              AND c.next_touch_date <= DATE_ADD(:today, INTERVAL :horizon DAY)
-            ORDER BY c.next_touch_date ASC, c.name"
+              AND c.next_touch_date <= DATE_ADD(:today, INTERVAL :horizon DAY)"
+            . $lens . '
+            ORDER BY c.next_touch_date ASC, c.name'
         );
-        $stmt->execute(['today' => $today, 'horizon' => $horizonDays]);
+        $stmt->execute($params);
 
         return $stmt->fetchAll();
     }
@@ -149,15 +186,15 @@ final class ContactModel
      *
      * @return list<array<string, mixed>>
      */
-    public function dueExcludingCold(string $today): array
+    public function dueExcludingCold(string $today, ?int $forUserId = null): array
     {
         $coldIds = array_map(
             static fn(array $c): int => (int) $c['id'],
-            $this->goingCold($today),
+            $this->goingCold($today, forUserId: $forUserId),
         );
 
         return array_values(array_filter(
-            $this->dueBy($today, 0),
+            $this->dueBy($today, 0, $forUserId),
             static fn(array $c): bool => !in_array((int) $c['id'], $coldIds, true),
         ));
     }
@@ -225,10 +262,20 @@ final class ContactModel
         int $afterId,
         int $limit,
         string $tag = '',
+        string $owner = '',
     ): array {
         $sql = self::BASE_SELECT;
         $where = ['c.deleted_at IS NULL', 'c.id > :after_id'];
         $params = ['after_id' => $afterId];
+
+        // Same owner semantics as search(): '' = anyone, 'shared' = unowned,
+        // a numeric string = that user's contacts.
+        $ownerFilter = OwnerLens::filter('c.owner_id', $owner);
+
+        if ($ownerFilter !== null) {
+            $where[] = $ownerFilter[0];
+            $params += $ownerFilter[1];
+        }
 
         if ($tag !== '') {
             $where[] = 'EXISTS (SELECT 1 FROM contact_tags ct
@@ -238,9 +285,9 @@ final class ContactModel
         }
 
         if ($query !== '') {
-            $where[] = '(c.name LIKE :query_name OR o.name LIKE :query_org)';
-            $params['query_name'] = '%' . $query . '%';
-            $params['query_org'] = '%' . $query . '%';
+            $where[] = "(c.name LIKE :query_name ESCAPE '!' OR o.name LIKE :query_org ESCAPE '!')";
+            $params['query_name'] = '%' . Database::escapeLike($query) . '%';
+            $params['query_org'] = '%' . Database::escapeLike($query) . '%';
         }
 
         if ($stage !== '') {
@@ -259,6 +306,39 @@ final class ContactModel
         $stmt->execute($params);
 
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Every live contact as a light id/name/organization row, for pickers
+     * (the task forms' "about" select). Skips BASE_SELECT's per-row
+     * follow-up-note subquery, which a dropdown has no use for.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function options(): array
+    {
+        return $this->db->pdo()->query(
+            'SELECT c.id, c.name, o.name AS organization_name
+             FROM contacts c
+             LEFT JOIN organizations o ON c.organization_id = o.id
+             WHERE c.deleted_at IS NULL
+             ORDER BY c.name, c.id'
+        )->fetchAll();
+    }
+
+    /**
+     * How many live contacts the user owns — the dashboard's empty-state
+     * hint, so an empty Mine view can say "you own N, nothing is due"
+     * instead of showing nothing at all.
+     */
+    public function countForOwner(int $userId): int
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT COUNT(*) FROM contacts WHERE owner_id = :owner_id AND deleted_at IS NULL'
+        );
+        $stmt->execute(['owner_id' => $userId]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**
@@ -289,8 +369,16 @@ final class ContactModel
      *
      * @return list<array<string, mixed>>
      */
-    public function goingCold(string $today, int $lateDays = 30): array
+    public function goingCold(string $today, int $lateDays = 30, ?int $forUserId = null): array
     {
+        $params = ['today' => $today, 'today_b' => $today, 'late_days' => $lateDays];
+        $lens = '';
+
+        if ($forUserId !== null) {
+            $lens = ' AND ' . self::ownerLens('for_user');
+            $params['for_user'] = $forUserId;
+        }
+
         $stmt = $this->db->pdo()->prepare(
             self::BASE_SELECT . "
             WHERE c.deleted_at IS NULL
@@ -298,10 +386,11 @@ final class ContactModel
               AND COALESCE(st.hidden_from_follow_ups, 0) = 0
               AND ((c.next_touch_date IS NULL
                         AND c.created_at < DATE_SUB(:today_b, INTERVAL 7 DAY))
-                   OR c.next_touch_date < DATE_SUB(:today, INTERVAL :late_days DAY))
-            ORDER BY (c.last_touch_date IS NULL) DESC, c.last_touch_date ASC, c.name"
+                   OR c.next_touch_date < DATE_SUB(:today, INTERVAL :late_days DAY))"
+            . $lens . '
+            ORDER BY (c.last_touch_date IS NULL) DESC, c.last_touch_date ASC, c.name'
         );
-        $stmt->execute(['today' => $today, 'today_b' => $today, 'late_days' => $lateDays]);
+        $stmt->execute($params);
 
         return $stmt->fetchAll();
     }
@@ -371,11 +460,11 @@ final class ContactModel
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO contacts (
                 name, organization_id, title, relationship_status, relationship_type,
-                email, phone, linkedin_url, cadence_days_override, human_detail,
+                owner_id, email, phone, linkedin_url, cadence_days_override, human_detail,
                 next_touch_date, created_by, updated_by
             ) VALUES (
                 :name, :organization_id, :title, :relationship_status, :relationship_type,
-                :email, :phone, :linkedin_url, :cadence_days_override, :human_detail,
+                :owner_id, :email, :phone, :linkedin_url, :cadence_days_override, :human_detail,
                 :next_touch_date, :created_by, :updated_by
             )'
         );
@@ -400,6 +489,7 @@ final class ContactModel
                 title = :title,
                 relationship_status = :relationship_status,
                 relationship_type = :relationship_type,
+                owner_id = :owner_id,
                 email = :email,
                 phone = :phone,
                 linkedin_url = :linkedin_url,
@@ -450,6 +540,7 @@ final class ContactModel
             'title' => $data['title'],
             'relationship_status' => $data['relationship_status'],
             'relationship_type' => $data['relationship_type'],
+            'owner_id' => $data['owner_id'],
             'email' => $data['email'],
             'phone' => $data['phone'],
             'linkedin_url' => $data['linkedin_url'],

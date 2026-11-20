@@ -83,9 +83,9 @@ final class AttachmentModel
 
         if ($query !== '') {
             // Separate placeholders: native prepares reject reusing one name.
-            $sql .= ' AND (att.original_name LIKE :q_file OR c.name LIKE :q_contact)';
-            $params['q_file'] = '%' . $query . '%';
-            $params['q_contact'] = '%' . $query . '%';
+            $sql .= " AND (att.original_name LIKE :q_file ESCAPE '!' OR c.name LIKE :q_contact ESCAPE '!')";
+            $params['q_file'] = '%' . Database::escapeLike($query) . '%';
+            $params['q_contact'] = '%' . Database::escapeLike($query) . '%';
         }
 
         $sql .= ' ORDER BY att.created_at DESC, att.id DESC';

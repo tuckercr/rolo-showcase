@@ -11,10 +11,14 @@ use App\Models\OrganizationModel;
 use App\Models\ReminderRuleModel;
 use App\Models\StageModel;
 use App\Models\TagModel;
+use App\Models\TaskModel;
+use App\Models\UserModel;
 use App\Services\AttachmentService;
 use App\Services\ReminderService;
 use App\Services\SlackCelebrationService;
+use App\Services\SnoozeService;
 use App\Support\SlackClient;
+use App\Support\TaskLabels;
 use App\Support\Url;
 use App\Support\View;
 use DateTimeImmutable;
@@ -27,6 +31,11 @@ final class ContactController extends Controller
         $status = trim((string) ($_GET['status'] ?? ''));
         $tag = trim((string) ($_GET['tag'] ?? ''));
 
+        $owner = trim((string) ($_GET['owner'] ?? ''));
+        if ($owner !== 'shared' && !ctype_digit($owner)) {
+            $owner = '';
+        }
+
         $sort = (string) ($_GET['sort'] ?? 'name');
         if (!array_key_exists($sort, ContactModel::SORTS)) {
             $sort = 'name';
@@ -37,12 +46,14 @@ final class ContactController extends Controller
 
         return $this->render('contacts/index', [
             'pageTitle' => 'Contacts',
-            'contacts' => $contacts->search($query, $status, null, $sort, $dir, $tag),
+            'contacts' => $contacts->search($query, $status, null, $sort, $dir, $tag, $owner),
             'stages' => (new StageModel($this->db))->allOrdered(),
             'allTags' => (new TagModel($this->db))->allWithCounts(),
+            'owners' => (new UserModel($this->db))->assignable($this->config->allowedEmails),
             'query' => $query,
             'status' => $status,
             'tag' => $tag,
+            'owner' => $owner,
             'sort' => $sort,
             'dir' => $dir,
             'today' => $this->todayLocal()->format('Y-m-d'),
@@ -101,26 +112,13 @@ final class ContactController extends Controller
             $days = 7;
         }
 
-        $oldDate = (string) ($contact['next_touch_date'] ?? '');
         $newDate = $this->todayLocal()->modify(sprintf('+%d days', $days))->format('Y-m-d');
 
-        $contacts->snooze((int) $contact['id'], $newDate, $this->auth->id());
-
-        // Leave a trace in the contact's history. Doesn't touch last_touch —
-        // ActivityModel::create only inserts the row.
-        (new ActivityModel($this->db))->create(
-            contactId: (int) $contact['id'],
-            organizationId: $contact['organization_id'] === null ? null : (int) $contact['organization_id'],
-            activityType: 'snoozed',
-            activityDate: $this->todayLocal()->format('Y-m-d'),
-            summary: sprintf(
-                'Modified follow up date from: %s, to: %s',
-                $oldDate === '' ? 'none' : $oldDate,
-                $newDate,
-            ),
-            followUpNeeded: false,
-            followUpDate: null,
-            userId: $this->auth->id(),
+        (new SnoozeService($this->db))->reschedule(
+            $contact,
+            $newDate,
+            $this->auth->id(),
+            $this->todayLocal()->format('Y-m-d'),
         );
 
         // The dashboard's inline snooze sends return_to=/ so the review
@@ -162,27 +160,15 @@ final class ContactController extends Controller
             $newDate = $raw;
         }
 
-        $oldDate = (string) ($contact['next_touch_date'] ?? '');
-
-        if (($newDate ?? '') === $oldDate) {
+        if (($newDate ?? '') === (string) ($contact['next_touch_date'] ?? '')) {
             return $this->redirect('/contacts/' . (int) $contact['id']);
         }
 
-        $contacts->snooze((int) $contact['id'], $newDate, $this->auth->id());
-
-        (new ActivityModel($this->db))->create(
-            contactId: (int) $contact['id'],
-            organizationId: $contact['organization_id'] === null ? null : (int) $contact['organization_id'],
-            activityType: 'snoozed',
-            activityDate: $this->todayLocal()->format('Y-m-d'),
-            summary: sprintf(
-                'Modified follow up date from: %s, to: %s',
-                $oldDate === '' ? 'none' : $oldDate,
-                $newDate ?? 'none',
-            ),
-            followUpNeeded: false,
-            followUpDate: null,
-            userId: $this->auth->id(),
+        (new SnoozeService($this->db))->reschedule(
+            $contact,
+            $newDate,
+            $this->auth->id(),
+            $this->todayLocal()->format('Y-m-d'),
         );
 
         return $this->redirect('/contacts/' . (int) $contact['id']);
@@ -224,9 +210,9 @@ final class ContactController extends Controller
         }
 
         // The follow-up queue = the dashboard list (overdue + due this week,
-        // soonest first). When this contact is in it, offer "next in queue"
-        // so Dana can work through follow-ups without bouncing back.
-        $queue = $contacts->dueBy($this->todayLocal()->format('Y-m-d'));
+        // soonest first) under the same Mine/Everyone lens, so "next in
+        // queue" never jumps to a contact the dashboard isn't showing.
+        $queue = $contacts->dueBy($this->todayLocal()->format('Y-m-d'), 6, $this->followUpScope());
         $queueIds = array_map(static fn(array $c): int => (int) $c['id'], $queue);
         $queueIndex = array_search((int) $contact['id'], $queueIds, true);
 
@@ -235,7 +221,19 @@ final class ContactController extends Controller
             $queueNext = $queue[$queueIndex + 1];
         }
 
+        // This contact's tasks, whoever owns them: a record's own page is
+        // never lensed. Open ones first, then the last few ticked off.
+        $tasks = new TaskModel($this->db);
+        $openTasks = $tasks->openForContact((int) $contact['id']);
+
         return $this->render('contacts/show', [
+            'openTaskCount' => count($openTasks),
+            'tasks' => TaskLabels::decorate(
+                array_merge($openTasks, $tasks->completedForContact((int) $contact['id'])),
+                $this->todayLocal()->format('Y-m-d'),
+                $this->config->appTimezone,
+            ),
+            'taskError' => TaskController::flashedError(),
             'queueIndex' => $queueIndex === false ? null : $queueIndex,
             'queueTotal' => count($queue),
             'queueNext' => $queueNext,
@@ -264,6 +262,8 @@ final class ContactController extends Controller
             'stages' => (new StageModel($this->db))->allOrdered(),
             'organizations' => (new OrganizationModel($this->db))->allOrdered(),
             'relationshipTypes' => ContactModel::RELATIONSHIP_TYPES,
+            'allTagNames' => (new TagModel($this->db))->names(),
+            'owners' => (new UserModel($this->db))->assignable($this->config->allowedEmails),
             'errors' => [],
             'old' => [],
         ]);
@@ -281,6 +281,8 @@ final class ContactController extends Controller
                 'stages' => (new StageModel($this->db))->allOrdered(),
                 'organizations' => (new OrganizationModel($this->db))->allOrdered(),
                 'relationshipTypes' => ContactModel::RELATIONSHIP_TYPES,
+                'allTagNames' => (new TagModel($this->db))->names(),
+            'owners' => (new UserModel($this->db))->assignable($this->config->allowedEmails),
                 'errors' => $errors,
                 'old' => $_POST,
             ]);
@@ -316,6 +318,8 @@ final class ContactController extends Controller
             'stages' => (new StageModel($this->db))->allOrdered(),
             'organizations' => (new OrganizationModel($this->db))->allOrdered(),
             'relationshipTypes' => ContactModel::RELATIONSHIP_TYPES,
+            'allTagNames' => (new TagModel($this->db))->names(),
+            'owners' => (new UserModel($this->db))->assignable($this->config->allowedEmails),
             'errors' => [],
             'old' => $contact + [
                 'tags' => implode(', ', (new TagModel($this->db))->namesForContact((int) $contact['id'])),
@@ -344,6 +348,8 @@ final class ContactController extends Controller
                 'stages' => (new StageModel($this->db))->allOrdered(),
                 'organizations' => (new OrganizationModel($this->db))->allOrdered(),
                 'relationshipTypes' => ContactModel::RELATIONSHIP_TYPES,
+                'allTagNames' => (new TagModel($this->db))->names(),
+            'owners' => (new UserModel($this->db))->assignable($this->config->allowedEmails),
                 'errors' => $errors,
                 'old' => $_POST,
             ]);
@@ -458,6 +464,22 @@ final class ContactController extends Controller
             }
         }
 
+        // Empty = shared. Anything else must be an assignable user (the
+        // sign-in allowlist), so a stale or forged id can't own contacts.
+        $ownerId = null;
+        $ownerInput = trim((string) ($input['owner_id'] ?? ''));
+        if ($ownerInput !== '') {
+            $assignableIds = array_map(
+                static fn(array $u): int => (int) $u['id'],
+                (new UserModel($this->db))->assignable($this->config->allowedEmails),
+            );
+            $ownerId = (int) $ownerInput;
+            if (!in_array($ownerId, $assignableIds, true)) {
+                $errors['owner_id'] = 'Pick a valid owner.';
+                $ownerId = null;
+            }
+        }
+
         $tags = TagModel::parseList((string) ($input['tags'] ?? ''));
 
         foreach ($tags as $tagName) {
@@ -474,6 +496,7 @@ final class ContactController extends Controller
             'title' => trim((string) ($input['title'] ?? '')) ?: null,
             'relationship_status' => $status,
             'relationship_type' => $relationshipType === '' ? null : $relationshipType,
+            'owner_id' => $ownerId,
             'email' => $email === '' ? null : $email,
             'phone' => $phone === '' ? null : $phone,
             'linkedin_url' => $linkedin === '' ? null : $linkedin,

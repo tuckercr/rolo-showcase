@@ -36,6 +36,30 @@ final class UserModel
     }
 
     /**
+     * Users offered as contact owners: the people who can actually sign in
+     * (OAUTH_ALLOWED_EMAILS). Retired identities keep their users row for
+     * historical attribution but stay out of the owner dropdown. An empty
+     * allowlist (local dev without one) falls back to everyone.
+     *
+     * @param list<string> $allowedEmails lowercase, from Config
+     * @return list<array<string, mixed>>
+     */
+    public function assignable(array $allowedEmails): array
+    {
+        if ($allowedEmails === []) {
+            return $this->all();
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($allowedEmails), '?'));
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT * FROM users WHERE LOWER(email) IN ($placeholders) ORDER BY name"
+        );
+        $stmt->execute($allowedEmails);
+
+        return $stmt->fetchAll();
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function findByGoogleSub(string $googleSub): ?array

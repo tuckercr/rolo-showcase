@@ -10,6 +10,7 @@ use App\Models\OrganizationModel;
 use App\Models\ProposalModel;
 use App\Models\StageModel;
 use App\Models\TagModel;
+use App\Models\TaskModel;
 use App\Services\McpProtocol;
 use App\Services\ProposalService;
 use App\Support\ApiFormat;
@@ -60,6 +61,29 @@ final class McpController extends ApiController
         ],
     ];
 
+    /** What an agent may set on a task (create and update). */
+    private const TASK_FIELDS = [
+        'notes' => ['type' => ['string', 'null'], 'description' => 'Optional detail; null clears it.'],
+        'due_date' => [
+            'type' => ['string', 'null'],
+            'description' => 'YYYY-MM-DD. Leave out (or null) for a task with no due date.',
+        ],
+        'owner' => [
+            'type' => 'string',
+            'description' => "Whose task it is: 'me' (the person this connection belongs to),"
+                . " 'shared' (shows up for everyone), a user id, or a user email.",
+        ],
+        'contact_id' => [
+            'type' => ['integer', 'null'],
+            'description' => 'The contact the task is about, if any (see search_contacts).',
+        ],
+        'organization_id' => [
+            'type' => ['integer', 'null'],
+            'description' => 'The organization the task is about, when it is not about one person.'
+                . ' A task links to a contact OR an organization, never both.',
+        ],
+    ];
+
     private string $urlToken = '';
 
     /**
@@ -102,9 +126,9 @@ final class McpController extends ApiController
      */
     private function runTool(string $name, array $args): array
     {
-        if (str_starts_with($name, 'propose_') && $this->tokenName !== 'write') {
+        if (str_starts_with($name, 'propose_') && !$this->canWrite) {
             return $this->toolError(
-                'This tool requires the read-write token; the presented token is read-only.',
+                'This tool requires a write-capable token; the presented token is read-only.',
             );
         }
 
@@ -118,6 +142,8 @@ final class McpController extends ApiController
                 'list_tags' => $this->listTags(),
                 'list_activities' => $this->listActivities($args),
                 'get_proposal' => $this->getProposal($args),
+                'list_tasks' => $this->taskList($args),
+                'get_task' => $this->getTask($args),
                 default => $this->propose(substr($name, strlen('propose_')), $args),
             });
         } catch (InvalidArgumentException $e) {
@@ -142,6 +168,7 @@ final class McpController extends ApiController
             afterId: ApiFormat::decodeCursor(isset($args['cursor']) ? (string) $args['cursor'] : null),
             limit: $limit,
             tag: trim((string) ($args['tag'] ?? '')),
+            owner: $this->resolveOwnerFilter((string) ($args['owner'] ?? '')),
         );
 
         $tagsByContact = (new TagModel($this->db))->namesForContacts(
@@ -179,8 +206,24 @@ final class McpController extends ApiController
             ApiSerializer::activity(...),
             array_slice((new ActivityModel($this->db))->forContact((int) $contact['id']), 0, 10),
         );
+        $payload['open_tasks'] = $this->openTasksForContact((int) $contact['id']);
 
         return ['data' => $payload];
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     * @return array<string, mixed>
+     */
+    private function getTask(array $args): array
+    {
+        $task = (new TaskModel($this->db))->find((int) ($args['id'] ?? 0));
+
+        if ($task === null) {
+            throw new InvalidArgumentException('No task with that id.');
+        }
+
+        return ['data' => ApiSerializer::task($task)];
     }
 
     /**
@@ -298,7 +341,7 @@ final class McpController extends ApiController
     private function propose(string $action, array $args): array
     {
         [$proposal, $isNew] = (new ProposalService($this->config, $this->db))
-            ->queue((string) $this->tokenName, $action, $args);
+            ->queue((string) $this->tokenName, $action, $args, proposedBy: $this->actorUserId);
 
         return [
             'data' => ApiSerializer::proposal($proposal),
@@ -365,17 +408,22 @@ final class McpController extends ApiController
             $this->readTool(
                 'search_contacts',
                 'Search CRM contacts by name or organization, filterable by pipeline stage, tag,'
-                    . ' or last-update date. Returns full contact records including tags and touch dates.',
+                    . ' owner, or last-update date. Returns full contact records including tags'
+                    . ' and touch dates.',
                 self::PAGING + [
                     'query' => ['type' => 'string', 'description' => 'Name or organization substring.'],
                     'stage' => ['type' => 'string', 'description' => 'Exact stage name, see list_stages.'],
                     'tag' => ['type' => 'string', 'description' => 'Exact tag name, see list_tags.'],
+                    'owner' => ['type' => 'string', 'description' => "Who tends the contact: 'me'"
+                        . " (the person this connection belongs to), 'shared', a user id, or a user"
+                        . ' email. Omit to search the whole workspace.'],
                     'updated_since' => ['type' => 'string', 'description' => 'YYYY-MM-DD or ISO 8601.'],
                 ],
             ),
             $this->readTool(
                 'get_contact',
-                'Fetch one contact by id, including tags and the 10 most recent activities.',
+                'Fetch one contact by id, including tags, the 10 most recent activities and'
+                    . ' their open tasks.',
                 ['id' => ['type' => 'integer']],
                 ['id'],
             ),
@@ -420,6 +468,68 @@ final class McpController extends ApiController
                     . ' (error is set when applying failed).',
                 ['id' => ['type' => 'integer']],
                 ['id'],
+            ),
+            $this->readTool(
+                'list_tasks',
+                'List tasks: one-off to-dos with a checkbox, separate from the follow-up schedule.'
+                    . ' Open tasks by default. Filter by owner, contact, organization or due date'
+                    . ' to answer questions like "what is on my plate this week?".',
+                self::PAGING + [
+                    'status' => [
+                        'type' => 'string',
+                        'enum' => ['open', 'done', 'all'],
+                        'default' => 'open',
+                    ],
+                    'owner' => ['type' => 'string', 'description' => "Whose tasks: 'me' (the person this"
+                        . " connection belongs to), 'shared', a user id, or a user email. A person's"
+                        . " own list is 'me' plus 'shared'. Omit for everyone's."],
+                    'contact_id' => ['type' => 'integer'],
+                    'organization_id' => [
+                        'type' => 'integer',
+                        'description' => 'Tasks about this organization or any of its contacts.',
+                    ],
+                    'due_before' => [
+                        'type' => 'string',
+                        'description' => 'YYYY-MM-DD: only tasks due on or before this date'
+                            . ' (overdue ones included, undated ones excluded).',
+                    ],
+                ],
+            ),
+            $this->readTool(
+                'get_task',
+                'Fetch one task by id.',
+                ['id' => ['type' => 'integer']],
+                ['id'],
+            ),
+            $this->writeTool(
+                'propose_create_task',
+                'Propose a new task (a one-off to-do). Use this for things to DO that are not'
+                    . ' "get back in touch with this person": that is a follow-up, set with'
+                    . ' propose_log_activity. A human approves in Rolo before the task exists.'
+                    . ' With no owner given the task belongs to the person this connection is for.',
+                self::IDEMPOTENCY + ['title' => ['type' => 'string', 'description' => 'What needs doing.']]
+                    + self::TASK_FIELDS,
+                ['title'],
+            ),
+            $this->writeTool(
+                'propose_update_task',
+                'Propose changing a task: its title, notes, due date, owner, or what it is about.'
+                    . ' Only the fields given change. To tick it off use propose_complete_task.',
+                self::IDEMPOTENCY + [
+                    'task_id' => ['type' => 'integer'],
+                    'title' => ['type' => 'string'],
+                ] + self::TASK_FIELDS,
+                ['task_id'],
+            ),
+            $this->writeTool(
+                'propose_complete_task',
+                'Propose ticking a task off as done (or, with completed false, reopening it).'
+                    . ' Completing a task never changes a contact\'s follow-up date.',
+                self::IDEMPOTENCY + [
+                    'task_id' => ['type' => 'integer'],
+                    'completed' => ['type' => 'boolean', 'default' => true],
+                ],
+                ['task_id'],
             ),
             $this->writeTool(
                 'propose_create_contact',

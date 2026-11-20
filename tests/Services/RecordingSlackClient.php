@@ -8,8 +8,9 @@ use App\Support\SlackClient;
 
 /**
  * Records what would have been sent to Slack instead of calling the API.
+ * Not final: SlackApprovalNotifierTest subclasses it to fail per channel.
  */
-final class RecordingSlackClient extends SlackClient
+class RecordingSlackClient extends SlackClient
 {
     /** @var list<array{channel: string, text: string, blocks: array<int, mixed>}> */
     public array $messages = [];

@@ -44,7 +44,7 @@ notice gates itself, so a double-fired cron is always a no-op.
 
 **🧾 It's honest engineering.** Plain PHP 8.4 with strict types, MariaDB,
 server-rendered HTML. No build step, no SPA, nothing to babysit. Deploys
-are a file copy. 159 PHPUnit tests around the logic that actually breaks
+are a file copy. 303 PHPUnit tests around the logic that actually breaks
 (cadence math, the MCP protocol, the Slack flows, the dashboard SQL), PSR-12
 enforced in CI, and Lighthouse scores of 96-100 performance and 100
 accessibility across the main pages.
@@ -92,6 +92,17 @@ detail" so you remember the person, not just the pipeline stage.
 
 ![Contact detail](screenshots/contact-detail.png)
 
+**Tasks.** One-off to-dos with a checkbox, kept deliberately separate from
+the follow-up rhythm: a task can be about a contact, an organization, or
+nothing at all, and ticking it never moves a follow-up date. They show up
+on the dashboard, on contact and organization pages, in the morning email,
+in Slack and over MCP.
+
+**Mine and Everyone.** A small team shares one set of data, but each person
+gets their own lens: contacts and tasks have an owner or are shared, and
+the dashboard, the morning email and the Slack bot each show a person
+their own plus the shared ones.
+
 **Contacts.** Sortable, searchable, overdue flagged in red.
 
 ![Contacts](screenshots/contacts.png)
@@ -112,10 +123,11 @@ This is the part worth reading the code for. The CRM doubles as a tool server
 for AI agents, with one rule enforced in the API layer instead of in agent
 instructions: **reads are live, writes never land directly.**
 
-- **REST API** (`/api/v1/*`). Separate read-only and read-write bearer tokens
-  compared in constant time, cursor pagination, machine-readable errors, a
+- **REST API** (`/api/v1/*`). Per-person bearer tokens (an agent acts as its
+  owner, and its proposals say whose agent it was) alongside shared
+  read-only and read-write ones, all compared in constant time, cursor pagination, machine-readable errors, a
   120 req/min rate limit per token, and an audit row for every request.
-- **MCP endpoint** (`/mcp`). The same tools over streamable HTTP: 13 tools
+- **MCP endpoint** (`/mcp`). The same tools over streamable HTTP: 18 tools
   with JSON schemas, read tools marked `readOnlyHint`, and a protocol core
   that's a pure, unit-tested class. Clients that can't send an Authorization
   header (claude.ai custom connectors) pass the token as a URL secret, which
@@ -157,6 +169,11 @@ signed webhooks in and `chat.postMessage` out.
 - **Approvals as DMs.** Pending agent proposals arrive with Approve / Reject
   buttons: the review queue as a 5-second tap. Each proposal announces
   exactly once.
+- **Tasks from Slack.** `/rolo task Send the proposal friday` captures a
+  to-do in one line (the trailing word is parsed as the due date, and
+  `for <name>:` attaches it to a contact); `/rolo tasks` lists your open
+  ones with Done buttons and an Undo; the evening debrief closes with the
+  tasks that are overdue or due today.
 - **`/rolo` slash command.** `log <name>` and `snooze <name> [days]` for the
   moment a call ends; `who <name>` answers an ephemeral contact card;
   `today`, `week`, `overdue` and `cold` are the dashboard's lists as

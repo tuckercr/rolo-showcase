@@ -150,6 +150,135 @@ final class DailySummaryServiceTest extends TestCase
         $this->assertStringNotContainsString('going cold', $html);
     }
 
+    public function testHasNewsSkipsOnlyTrulyEmptyEmails(): void
+    {
+        $empty = [
+            'overdue' => [],
+            'dueToday' => [],
+            'yesterdayActivities' => [],
+            'pendingApprovals' => 0,
+            'goingColdCount' => 5,
+        ];
+
+        self::assertFalse(
+            DailySummaryService::hasNews($empty),
+            'going-cold alone is a standing condition, not daily news',
+        );
+        self::assertTrue(DailySummaryService::hasNews(['overdue' => [['id' => 1]]] + $empty));
+        self::assertTrue(DailySummaryService::hasNews(['dueToday' => [['id' => 1]]] + $empty));
+        self::assertTrue(DailySummaryService::hasNews(['yesterdayActivities' => [['id' => 1]]] + $empty));
+        self::assertTrue(DailySummaryService::hasNews(['pendingApprovals' => 2] + $empty));
+        self::assertTrue(
+            DailySummaryService::hasNews(['tasks' => [['id' => 1]]] + $empty),
+            'a task due today is news even with no follow-ups',
+        );
+    }
+
+    public function testSubjectMentionsTasksAndApprovalsOnlyWhenThereAreSome(): void
+    {
+        $now = $this->eastern('2026-11-20 09:00:00');
+        $data = ['overdue' => [['id' => 1]], 'dueToday' => [], 'tasks' => [], 'pendingApprovals' => 0];
+
+        self::assertSame('Rolo: 1 overdue, 0 due today (Fri Nov 20)', DailySummaryService::subject($data, $now));
+        self::assertSame(
+            'Rolo: 1 overdue, 0 due today, 1 task (Fri Nov 20)',
+            DailySummaryService::subject(['tasks' => [['id' => 1]]] + $data, $now),
+        );
+        self::assertSame(
+            'Rolo: 1 overdue, 0 due today, 2 tasks, 3 to approve (Fri Nov 20)',
+            DailySummaryService::subject(
+                ['tasks' => [['id' => 1], ['id' => 2]], 'pendingApprovals' => 3] + $data,
+                $now,
+            ),
+        );
+    }
+
+    public function testEmailRendersTheTasksBlockOnlyWhenThereAreTasks(): void
+    {
+        $base = [
+            'appUrl' => 'https://crm.example.com',
+            'overdue' => [],
+            'dueToday' => [],
+            'yesterdayActivities' => [],
+            'activityTypes' => [],
+            'todayLabel' => 'Friday, November 20',
+            'yesterdayLabel' => 'Thursday',
+            'photoCids' => [],
+            'lensLabel' => '',
+        ];
+
+        self::assertStringNotContainsString('asks (', View::render('emails/daily_summary', $base));
+
+        $html = View::render('emails/daily_summary', $base + ['tasks' => [
+            [
+                'id' => 4,
+                'title' => 'Send <b>Q1</b> proposal',
+                'contact_id' => 7,
+                'contact_name' => 'Maria Santos',
+                'organization_name' => 'Lakeview University',
+                'due_label' => 'due Nov 18 (2 days late)',
+                'is_overdue' => true,
+            ],
+            [
+                'id' => 5,
+                'title' => 'Renew the contract',
+                'contact_id' => null,
+                'contact_name' => null,
+                'organization_name' => 'Northfield Labs',
+                'due_label' => 'due today',
+                'is_overdue' => false,
+            ],
+        ]]);
+
+        self::assertStringContainsString('Tasks (2)', $html);
+        self::assertStringNotContainsString('Your tasks', $html, 'the everyone view is not "yours"');
+        self::assertStringContainsString(
+            'Your tasks (1)',
+            View::render('emails/daily_summary', ['lensLabel' => 'Your follow-ups and tasks.', 'tasks' => [[
+                'id' => 4,
+                'title' => 'Mine',
+                'contact_id' => null,
+                'contact_name' => null,
+                'organization_name' => null,
+                'due_label' => 'due today',
+                'is_overdue' => false,
+            ]]] + $base),
+        );
+        self::assertStringContainsString('Send &lt;b&gt;Q1&lt;/b&gt; proposal', $html, 'titles are escaped');
+        self::assertStringContainsString('https://crm.example.com/contacts/7', $html);
+        self::assertStringContainsString('Maria Santos', $html);
+        self::assertStringContainsString('due Nov 18 (2 days late)', $html);
+        self::assertStringContainsString('Northfield Labs', $html);
+        self::assertLessThan(
+            strpos($html, 'Overdue ('),
+            strpos($html, 'Tasks (2)'),
+            'tasks come before the follow-up sections',
+        );
+        self::assertStringNotContainsString("\u{2014}", $html, 'no em dashes in user-facing copy');
+    }
+
+    public function testEmailShowsTheLensLabelOnlyWhenPersonalized(): void
+    {
+        $base = [
+            'appUrl' => 'https://crm.example.com',
+            'overdue' => [],
+            'dueToday' => [],
+            'yesterdayActivities' => [],
+            'activityTypes' => [],
+            'todayLabel' => 'Thursday, July 9',
+            'yesterdayLabel' => 'Wednesday',
+            'photoCids' => [],
+        ];
+
+        $personal = View::render('emails/daily_summary', $base + [
+            'lensLabel' => 'Your follow-ups and tasks: the ones you own plus shared ones.',
+        ]);
+        self::assertStringContainsString('the ones you own plus shared ones', $personal);
+
+        $combined = View::render('emails/daily_summary', $base + ['lensLabel' => '']);
+        self::assertStringNotContainsString('the ones you own', $combined);
+    }
+
     public function testEmailEscapesUserContent(): void
     {
         $html = View::render('emails/daily_summary', [

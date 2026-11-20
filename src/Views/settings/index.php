@@ -20,6 +20,7 @@ use App\Support\View;
  * @var array<string, mixed>|null $calendarConnection this user's row, or null
  * @var bool $calendarEnabled Google OAuth client + APP_URL configured
  * @var string $calendarFlash ?calendar= outcome from the connect flow
+ * @var string|null $mcpUrl the signed-in user's personal MCP connector link
  */
 
 include __DIR__ . '/../layout/header.php';
@@ -233,6 +234,110 @@ $selectClass = 'border border-brand-sand rounded-lg px-2 py-1.5 text-sm bg-white
         <p class="mt-4 text-sm text-brand-muted">
             Google OAuth isn&rsquo;t configured on this install, so the calendar
             can&rsquo;t be connected yet.
+        </p>
+    <?php endif ?>
+</section>
+
+<section class="mt-10 max-w-3xl">
+    <h2 class="text-lg font-semibold text-brand-ink">Claude connection</h2>
+
+    <div class="mt-3 bg-brand-cream2 border border-brand-sand rounded-lg px-4 py-3 text-sm text-brand-inksoft">
+        <p>
+            Connect Rolo to Claude and your AI agent can search contacts, look up
+            history, and propose changes. Nothing it proposes touches the CRM until
+            a person approves it on the <a href="/proposals"
+            class="text-brand-red hover:underline">Approvals</a> page.
+        </p>
+        <p class="mt-2 text-xs text-brand-muted">
+            The link below is personal: requests through it are recorded under your
+            name, and contacts your agent proposes are assigned to you.
+        </p>
+    </div>
+
+    <?php if ($mcpUrl !== null) : ?>
+        <?php $mcpMasked = substr($mcpUrl, 0, (int) strrpos($mcpUrl, '/') + 1)
+            . "\u{2026}" . substr($mcpUrl, -4); ?>
+        <ol class="mt-4 text-sm text-brand-inksoft list-decimal ml-5 space-y-1">
+            <li>Copy your personal connector link below.</li>
+            <li>
+                On claude.ai, open <strong>Settings &rsaquo; Connectors</strong>
+                (or go to claude.ai/settings/connectors).
+            </li>
+            <li>
+                Click <strong>Add custom connector</strong>, name it
+                <strong>Rolo</strong>, and paste the link as the URL.
+            </li>
+            <li>
+                In a chat, enable Rolo under the tools menu and try
+                &ldquo;search my Rolo contacts&rdquo;.
+            </li>
+        </ol>
+
+        <div class="mt-4 flex items-center gap-2 bg-white rounded-lg shadow px-4 py-3">
+            <code id="mcp-url" data-url="<?= View::e($mcpUrl) ?>"
+                  class="flex-1 text-xs text-brand-ink break-all"></code>
+            <button type="button" id="mcp-toggle"
+                    class="text-xs text-brand-inksoft border border-brand-sand hover:bg-brand-cream2
+                           rounded px-2.5 py-1">Show</button>
+            <button type="button" id="mcp-copy"
+                    class="text-xs text-white bg-brand-red hover:bg-brand-reddark
+                           rounded px-2.5 py-1">Copy</button>
+        </div>
+        <p class="mt-2 text-xs text-brand-muted">
+            Treat this link like a password: anyone who has it can read the CRM and
+            queue proposals in your name. Also works in Claude Code:
+            <code>claude mcp add --transport http rolo &lt;link&gt;</code>.
+        </p>
+
+        <script>
+            (function () {
+                var box = document.getElementById('mcp-url');
+                var toggle = document.getElementById('mcp-toggle');
+                var copy = document.getElementById('mcp-copy');
+                var full = box.getAttribute('data-url');
+                var masked = <?= (string) json_encode($mcpMasked) ?>;
+                var shown = false;
+
+                box.textContent = masked;
+                toggle.addEventListener('click', function () {
+                    shown = !shown;
+                    box.textContent = shown ? full : masked;
+                    toggle.textContent = shown ? 'Hide' : 'Show';
+                });
+                function copied() {
+                    copy.textContent = 'Copied!';
+                    setTimeout(function () { copy.textContent = 'Copy'; }, 2000);
+                }
+
+                // Clipboard API first; selection + execCommand when it is
+                // unavailable or denied (older browsers, embedded webviews).
+                function fallbackCopy() {
+                    var area = document.createElement('textarea');
+
+                    area.value = full;
+                    document.body.appendChild(area);
+                    area.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(area);
+                    copied();
+                }
+
+                copy.addEventListener('click', function () {
+                    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                        fallbackCopy();
+                        return;
+                    }
+
+                    navigator.clipboard.writeText(full).then(copied, fallbackCopy);
+                });
+            })();
+        </script>
+    <?php else : ?>
+        <p class="mt-4 text-sm text-brand-muted">
+            No personal agent token is set up for your account yet. Add an entry for
+            your email to <code>API_USER_TOKENS</code> in the server&rsquo;s
+            <code>.env</code> (see <code>docs/API.md</code>) and your connector link
+            will appear here.
         </p>
     <?php endif ?>
 </section>

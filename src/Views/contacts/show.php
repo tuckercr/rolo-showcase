@@ -21,6 +21,10 @@ use App\Support\View;
  * @var int|null $queueIndex 0-based position in the follow-up queue, null if not queued
  * @var int $queueTotal
  * @var array<string, mixed>|null $queueNext the next queued contact, if any
+ * @var list<array<string, mixed>> $tasks this contact's open tasks, then the
+ *      last few done ones, decorated (TaskLabels::decorate)
+ * @var int $openTaskCount
+ * @var string|null $taskError
  */
 
 include __DIR__ . '/../layout/header.php';
@@ -106,7 +110,7 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
         <a href="/contacts/<?= (int) $contact['id'] ?>/edit"
            class="text-sm bg-brand-ink hover:bg-brand-red text-white px-4 py-2 rounded-lg">Edit</a>
         <form method="post" action="/contacts/<?= (int) $contact['id'] ?>/trash"
-              onsubmit="return confirm('Move <?= View::e((string) $contact['name']) ?> to the trash?\n'
+              onsubmit="return confirm('Move this contact to the trash?\n'
                   + 'Nothing is lost. You can restore from Contacts > Trash.');">
             <?= Csrf::field() ?>
             <button type="submit" title="Move to trash" aria-label="Move to trash"
@@ -151,6 +155,14 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
             <div>
                 <p class="text-xs uppercase tracking-wide text-brand-muted">Stage</p>
                 <p class="text-brand-ink font-medium"><?= View::e((string) $contact['relationship_status']) ?></p>
+            </div>
+            <div>
+                <p class="text-xs uppercase tracking-wide text-brand-muted">Owner</p>
+                <p class="text-brand-ink">
+                    <?= $contact['owner_id'] === null
+                        ? 'Shared'
+                        : View::e((string) $contact['owner_name']) ?>
+                </p>
             </div>
             <div>
                 <p class="text-xs uppercase tracking-wide text-brand-muted">Next follow-up</p>
@@ -212,6 +224,40 @@ $inputClass = 'mt-1 w-full border border-brand-sand rounded-lg px-3 py-2 text-sm
                     </p>
                 </div>
             <?php endif ?>
+        </div>
+
+        <div id="tasks" class="bg-white rounded-lg shadow text-sm">
+            <div class="flex items-center justify-between px-4 pt-4 pb-2">
+                <h2 class="text-sm font-semibold text-brand-inksoft">Tasks</h2>
+                <span class="text-xs text-brand-muted"><?= $openTaskCount ?> open</span>
+            </div>
+            <?php if ($taskError !== null) : ?>
+                <p class="px-4 pb-2 text-xs text-brand-red"><?= View::e($taskError) ?></p>
+            <?php endif ?>
+            <?php
+            if ($tasks !== []) {
+                $taskList = [
+                    'rows' => $tasks,
+                    'returnTo' => '/contacts/' . (int) $contact['id'],
+                    'showLink' => false,
+                    'compact' => true,
+                ];
+                include __DIR__ . '/../partials/task_rows.php';
+            }
+            ?>
+            <div class="<?= $tasks !== [] ? 'border-t border-brand-cream2' : '' ?>">
+                <?php
+                $taskAdd = [
+                    'returnTo' => '/contacts/' . (int) $contact['id'],
+                    'contactId' => (int) $contact['id'],
+                ];
+                include __DIR__ . '/../partials/task_add.php';
+                ?>
+            </div>
+            <p class="px-4 pb-4 text-xs text-brand-muted">
+                Tasks are one-offs with a checkbox. Ticking one never moves the
+                follow-up above.
+            </p>
         </div>
 
         <div class="bg-white rounded-lg shadow p-5 text-sm space-y-3">

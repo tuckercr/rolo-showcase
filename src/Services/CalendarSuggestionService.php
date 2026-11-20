@@ -27,9 +27,14 @@ class CalendarSuggestionService
     }
 
     /**
-     * @return list<array{contact: array<string, mixed>, title: string, time: ?string}>
+     * One calendar day's matched meetings. $skipAlreadyLogged drops contacts
+     * who already have an interaction logged on $day — right for today and
+     * yesterday (no nagging about done work), wrong for tomorrow's prep
+     * view, where the meeting hasn't happened yet.
+     *
+     * @return list<array{contact: array<string, mixed>, title: string, time: ?string, start?: string}>
      */
-    public function suggestionsFor(?int $userId, string $today): array
+    public function suggestionsFor(?int $userId, string $day, bool $skipAlreadyLogged = true): array
     {
         if ($userId === null) {
             return [];
@@ -43,7 +48,7 @@ class CalendarSuggestionService
 
         $google = new GoogleCalendarService($this->config);
         $accessToken = $google->accessToken((string) $connection['refresh_token']);
-        $events = $google->eventsForDay($accessToken, $today);
+        $events = $google->eventsForDay($accessToken, $day);
 
         $emails = GoogleCalendarService::attendeeEmails($events);
 
@@ -58,21 +63,21 @@ class CalendarSuggestionService
             $this->config->appTimezone,
         );
 
-        if ($matched === []) {
-            return [];
+        if ($matched === [] || !$skipAlreadyLogged) {
+            return $matched;
         }
 
-        $loggedToday = [];
+        $logged = [];
 
-        foreach ((new ActivityModel($this->db))->onDate($today) as $activity) {
+        foreach ((new ActivityModel($this->db))->onDate($day) as $activity) {
             if ((string) $activity['activity_type'] !== 'snoozed') {
-                $loggedToday[(int) $activity['contact_id']] = true;
+                $logged[(int) $activity['contact_id']] = true;
             }
         }
 
         return array_values(array_filter(
             $matched,
-            static fn(array $s): bool => !isset($loggedToday[(int) $s['contact']['id']]),
+            static fn(array $s): bool => !isset($logged[(int) $s['contact']['id']]),
         ));
     }
 }

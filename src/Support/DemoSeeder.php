@@ -7,8 +7,8 @@
  * reason public/migrate.php exists).
  *
  * Every date is computed relative to today, so the dashboard always shows a
- * live mix of overdue, due-today, due-this-week and going-cold contacts no
- * matter when it runs. Refuses to run when the database already has
+ * live mix of overdue, due-today, due-this-week and going-cold contacts, and
+ * of overdue, due and done tasks, no matter when it runs. Refuses to run when the database already has
  * contacts: it is a starter kit for an empty install, not something to
  * point at real data.
  */
@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use App\Models\TaskModel;
 use App\Services\ProposalService;
 use DateTimeImmutable;
 use RuntimeException;
@@ -139,6 +140,23 @@ final class DemoSeeder
             $contactIds[$cName] = (int) $pdo->lastInsertId();
         }
 
+        // Who tends each relationship. Unlisted contacts stay shared, which
+        // puts them on everyone's "Mine" view; the rest split between the
+        // two seeded users so the Mine / Everyone toggle has something to show.
+        $owners = [
+            1 => ['Maria Santos', 'David Okafor', 'Anna Kowalski', 'Tom Nguyen', 'Grace Lee', 'Mark Ivers',
+                'Hector Ramos', 'Felix Nordin', 'Ivan Petrov', 'Ruth Adler'],
+            2 => ['Emily Torres', 'Robert Ellis', 'Lauren Kim', 'Priya Shah', 'Jane Alvarez', 'Olivia Grant',
+                'Wendy Park', 'Ben Osei'],
+        ];
+        $ownerStmt = $pdo->prepare('UPDATE contacts SET owner_id = ? WHERE id = ?');
+
+        foreach ($owners as $ownerId => $owned) {
+            foreach ($owned as $cName) {
+                $ownerStmt->execute([$ownerId, $contactIds[$cName]]);
+            }
+        }
+
         // History: contact, type, day offset, summary, follow-up offset,
         // follow-up note, logged by. The newest row per contact lines up with
         // the last_touch_date set above.
@@ -230,6 +248,40 @@ final class DemoSeeder
             }
         }
 
+        // Tasks: one-off to-dos, separate from the follow-up rhythm above.
+        // title, notes, due offset (null = no date), owner (null = shared),
+        // contact, organization, done (days ago, null = open).
+        $tasks = [
+            ['Intro Tom to the Meridian data team', null, -2, 1, 'Tom Nguyen', null, null],
+            ['Draft the pilot pricing one-pager', 'Two options: flat fee, or per-site', 0, 1, 'Sarah Chen', null, null],
+            ['Send Anna the interview slots', null, 1, 2, 'Anna Kowalski', null, null],
+            ['Prep slides for the innovation showcase talk', 'Twenty minutes; reuse the autumn deck', 4, null,
+                null, null, null],
+            ['Renew the Harbor Diagnostics retainer paperwork', null, 20, 2, null, 'Harbor Diagnostics', null],
+            ['Book travel for the Cascade offsite', null, null, 1, 'David Okafor', null, null],
+            ['Order new business cards', null, -1, 1, null, null, 1],
+        ];
+        $taskModel = new TaskModel($this->database);
+        $doneStmt = $pdo->prepare(
+            'UPDATE tasks SET completed_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY), completed_by = ?
+             WHERE id = ?'
+        );
+
+        foreach ($tasks as [$title, $notes, $dueOffset, $owner, $cName, $orgName, $doneDaysAgo]) {
+            $taskId = $taskModel->create([
+                'title' => $title,
+                'notes' => $notes,
+                'due_date' => $dueOffset === null ? null : $d($dueOffset),
+                'owner_id' => $owner,
+                'contact_id' => $cName === null ? null : $contactIds[$cName],
+                'organization_id' => $orgName === null ? null : $orgIds[$orgName],
+            ], $owner ?? 1);
+
+            if ($doneDaysAgo !== null) {
+                $doneStmt->execute([$doneDaysAgo, $owner ?? 1, $taskId]);
+            }
+        }
+
         // Pending agent proposals, queued through the real validation path so
         // the approval queue (and its Slack DMs) have something to show.
         $proposals = new ProposalService($this->config, $this->database);
@@ -254,8 +306,15 @@ final class DemoSeeder
             'website' => 'https://northgatehealth.example',
         ]);
 
+        $proposals->queue('write', 'create_task', [
+            'title' => 'Send Carla the workshop one-pager',
+            'due_date' => $d(3),
+            'contact_id' => $contactIds['Carla Mendes'],
+        ]);
+
         $summary = 'Seeded: ' . count($orgs) . ' organizations, ' . count($contacts) . ' contacts, '
-            . count($activities) . ' activities, ' . count($tags) . ' tags, 3 pending proposals.';
+            . count($activities) . ' activities, ' . count($tags) . ' tags, ' . count($tasks)
+            . ' tasks, 4 pending proposals.';
 
         if ($signInEmail !== null) {
             $summary .= ' Sign-in user: ' . strtolower($signInEmail) . ' (users row 1).';

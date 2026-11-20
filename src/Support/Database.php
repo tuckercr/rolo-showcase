@@ -19,6 +19,17 @@ final class Database
     {
     }
 
+    /**
+     * Escape a user-typed value for use inside a LIKE pattern, so % and _
+     * match literally instead of as wildcards ("/rolo who %" must not dump
+     * every contact). Pair with an explicit "LIKE :x ESCAPE '!'" — '!' as
+     * the escape char sidesteps MySQL's own backslash-in-string rules.
+     */
+    public static function escapeLike(string $value): string
+    {
+        return str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $value);
+    }
+
     public function pdo(): PDO
     {
         if ($this->pdo === null) {

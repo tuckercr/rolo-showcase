@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\ProposalModel;
 use App\Support\Config;
 use App\Support\Database;
+use App\Support\Mrkdwn;
 use App\Support\SlackClient;
 
 /**
@@ -36,6 +37,7 @@ final class SlackApprovalNotifier
         $proposals = new ProposalModel($this->db);
         $service = new ProposalService($this->config, $this->db);
         $announced = 0;
+        $failed = 0;
 
         foreach ($proposals->pending() as $proposal) {
             if (($proposal['slack_notified_at'] ?? null) !== null) {
@@ -50,9 +52,9 @@ final class SlackApprovalNotifier
             $text = sprintf('Approval needed: %s', $title);
             $body = sprintf(
                 "*%s*\n%s%s",
-                $title,
-                (string) $proposal['summary'],
-                $consequence !== '' ? "\n_" . $consequence . '_' : '',
+                Mrkdwn::esc($title),
+                Mrkdwn::esc((string) $proposal['summary']),
+                $consequence !== '' ? "\n_" . Mrkdwn::esc($consequence) . '_' : '',
             );
 
             $blocks = [
@@ -62,8 +64,13 @@ final class SlackApprovalNotifier
                     'elements' => [[
                         'type' => 'mrkdwn',
                         'text' => sprintf(
-                            'Proposed by an AI agent (%s token) · %s UTC',
-                            (string) $proposal['token_name'],
+                            'Proposed by %s · %s UTC',
+                            $proposal['proposed_by'] === null
+                                ? sprintf(
+                                    'an AI agent (%s token)',
+                                    Mrkdwn::esc((string) $proposal['token_name']),
+                                )
+                                : Mrkdwn::esc((string) $proposal['proposed_by_name']) . "'s AI agent",
                             (string) $proposal['created_at'],
                         ),
                     ]],
@@ -89,14 +96,33 @@ final class SlackApprovalNotifier
                 ],
             ];
 
+            $delivered = 0;
+
             foreach (array_keys($this->config->slackUserMap) as $slackUser) {
-                $this->slack->postMessage($slackUser, $text, $blocks);
+                // One person's broken DM (deactivated account, bad member
+                // id) must not block the other's, abort the loop so later
+                // proposals are never announced, or — by leaving the stamp
+                // unset — re-DM the working account every cron tick.
+                try {
+                    $this->slack->postMessage($slackUser, $text, $blocks);
+                    $delivered++;
+                } catch (\Throwable) {
+                    $failed++;
+                }
             }
 
-            $proposals->markSlackNotified($id);
-            $announced++;
+            // Stamp once anyone got it; if every DM failed (Slack is down),
+            // leave the proposal unstamped so the next tick retries.
+            if ($delivered > 0) {
+                $proposals->markSlackNotified($id);
+                $announced++;
+            }
         }
 
-        return sprintf('approvals: announced %d', $announced);
+        return sprintf(
+            'approvals: announced %d%s',
+            $announced,
+            $failed > 0 ? sprintf(', %d DM(s) failed', $failed) : '',
+        );
     }
 }

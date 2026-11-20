@@ -47,8 +47,8 @@ final class OrganizationModel
         $params = [];
 
         if ($query !== '') {
-            $where[] = 'o.name LIKE :query';
-            $params['query'] = '%' . $query . '%';
+            $where[] = "o.name LIKE :query ESCAPE '!'";
+            $params['query'] = '%' . Database::escapeLike($query) . '%';
         }
 
         if ($orgType !== '') {
@@ -83,8 +83,8 @@ final class OrganizationModel
         $params = ['after_id' => $afterId];
 
         if ($query !== '') {
-            $where[] = 'o.name LIKE :query';
-            $params['query'] = '%' . $query . '%';
+            $where[] = "o.name LIKE :query ESCAPE '!'";
+            $params['query'] = '%' . Database::escapeLike($query) . '%';
         }
 
         if ($orgType !== '') {

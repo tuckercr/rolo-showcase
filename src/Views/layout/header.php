@@ -12,10 +12,20 @@ use App\Support\View;
 
 $headTitle = $pageTitle . ' · Rolo';
 
+// The desktop nav is one fixed-width row with no room to spare (it wrapped
+// once Tasks joined it), so it shows the signed-in person's first name and
+// nothing in it may wrap. The full name stays on hover and in the mobile menu.
+// It needs the full 1024px container to fit, hence the lg breakpoint:
+// narrower screens (tablets included) get the menu button instead.
+$navUserName = (string) ($currentUser['name'] ?? '');
+$navFirstName = explode(' ', trim($navUserName))[0];
+
 $navLinks = [
     '/' => 'Dashboard',
+    '/tasks' => 'Tasks',
     '/contacts' => 'Contacts',
     '/organizations' => 'Organizations',
+    '/tags' => 'Tags',
     '/attachments' => 'Files',
     '/settings' => 'Settings',
     '/help' => 'Help',
@@ -33,7 +43,7 @@ $navLinks = [
             Rolo<span class="text-brand-red">.</span>
         </a>
 
-        <div class="hidden md:flex items-center gap-6 flex-1">
+        <div class="hidden lg:flex items-center gap-4 flex-1 whitespace-nowrap">
             <?php foreach ($navLinks as $href => $label) : ?>
                 <a href="<?= View::e($href) ?>"
                    class="text-sm text-brand-inksoft hover:text-brand-red"><?= View::e($label) ?></a>
@@ -50,7 +60,7 @@ $navLinks = [
             </a>
             <div class="ml-auto flex items-center gap-3 text-sm text-brand-muted">
                 <?php if ($currentUser !== null) : ?>
-                    <span><?= View::e((string) $currentUser['name']) ?></span>
+                    <span title="<?= View::e($navUserName) ?>"><?= View::e($navFirstName) ?></span>
                     <form method="post" action="/logout">
                         <?= Csrf::field() ?>
                         <button type="submit" class="hover:text-brand-red underline">Sign out</button>
@@ -59,7 +69,7 @@ $navLinks = [
             </div>
         </div>
 
-        <div class="md:hidden ml-auto flex items-center gap-4">
+        <div class="lg:hidden ml-auto flex items-center gap-4">
             <?php if (($pendingProposals ?? 0) > 0) : ?>
                 <a href="/proposals"
                    class="text-sm text-brand-red font-medium hover:underline whitespace-nowrap">
@@ -76,7 +86,7 @@ $navLinks = [
         </div>
     </div>
 
-    <div id="nav-menu" hidden class="md:hidden border-t border-brand-sand px-4 pt-3 pb-4">
+    <div id="nav-menu" hidden class="lg:hidden border-t border-brand-sand px-4 pt-3 pb-4">
         <div class="flex flex-col gap-3">
             <?php foreach ($navLinks as $href => $label) : ?>
                 <a href="<?= View::e($href) ?>"

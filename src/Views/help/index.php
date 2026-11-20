@@ -14,11 +14,20 @@ include __DIR__ . '/../layout/header.php';
 
 <h1 class="font-serif text-3xl text-brand-ink">Help</h1>
 <p class="mt-2 text-sm text-brand-muted max-w-2xl">
-    How to connect an AI assistant to Rolo, what it can do once connected,
-    and why nothing changes without your say-so.
+    Guides to Rolo&rsquo;s features, how to connect an AI assistant, what it can
+    do once connected, and why nothing changes without your say-so.
 </p>
 
 <div class="mt-8 max-w-2xl space-y-10">
+
+    <section>
+        <h2 class="font-serif text-xl text-brand-ink">Guides</h2>
+        <ul class="mt-2 ml-5 list-disc text-sm text-brand-inksoft leading-relaxed space-y-1.5">
+            <li><a href="/help/tasks" class="text-brand-red hover:underline">Tasks guide</a>:
+                the to-do list, how it differs from follow-ups, and how to use it on the
+                web, in Slack and with an assistant.</li>
+        </ul>
+    </section>
 
     <section>
         <h2 class="font-serif text-xl text-brand-ink">What the connector is</h2>
@@ -69,6 +78,8 @@ include __DIR__ . '/../layout/header.php';
             <li>&ldquo;Log a coffee meeting with [contact] today. We discussed the Nashville event.
                 Follow up next Friday to send the deck.&rdquo;</li>
             <li>&ldquo;Add [company] as an organization in Rolo.&rdquo;</li>
+            <li>&ldquo;Add a task to send [contact] the proposal by Friday.&rdquo;</li>
+            <li>&ldquo;What&rsquo;s on my task list this week?&rdquo;</li>
             <li>&ldquo;Tag everyone at [organization] with PDA-Nashville.&rdquo;</li>
         </ul>
         <p class="mt-3 text-sm text-brand-muted leading-relaxed">

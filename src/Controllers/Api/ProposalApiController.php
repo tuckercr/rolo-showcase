@@ -50,6 +50,27 @@ final class ProposalApiController extends ApiController
         return $this->propose('log_activity', ['contact_id' => (int) $vars['id']] + $this->jsonBody());
     }
 
+    public function proposeCreateTask(): string
+    {
+        return $this->propose('create_task', $this->jsonBody());
+    }
+
+    /**
+     * @param array<string, string> $vars route parameters
+     */
+    public function proposeUpdateTask(array $vars): string
+    {
+        return $this->propose('update_task', ['task_id' => (int) $vars['id']] + $this->jsonBody());
+    }
+
+    /**
+     * @param array<string, string> $vars route parameters
+     */
+    public function proposeCompleteTask(array $vars): string
+    {
+        return $this->propose('complete_task', ['task_id' => (int) $vars['id']] + $this->jsonBody());
+    }
+
     /**
      * Poll a proposal's fate (read token is enough).
      *
@@ -81,6 +102,7 @@ final class ProposalApiController extends ApiController
                 $action,
                 $payload,
                 isset($_SERVER['HTTP_IDEMPOTENCY_KEY']) ? (string) $_SERVER['HTTP_IDEMPOTENCY_KEY'] : null,
+                $this->actorUserId,
             );
         } catch (InvalidArgumentException $e) {
             return $this->respondError(400, 'invalid_payload', $e->getMessage());

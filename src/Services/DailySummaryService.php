@@ -7,9 +7,12 @@ namespace App\Services;
 use App\Models\ActivityModel;
 use App\Models\ContactModel;
 use App\Models\ProposalModel;
+use App\Models\TaskModel;
+use App\Models\UserModel;
 use App\Support\Config;
 use App\Support\Database;
 use App\Support\Mailer;
+use App\Support\TaskLabels;
 use App\Support\View;
 use DateTimeImmutable;
 
@@ -17,6 +20,14 @@ use DateTimeImmutable;
  * The 9 AM Eastern daily email: overdue + due-today follow-ups and
  * yesterday's logged activity, topped with a "have you logged what you did
  * yesterday?" nudge linking back to the app.
+ *
+ * Per-recipient since 2026-11-19: a recipient whose email matches a users
+ * row gets THEIR follow-ups (contacts they own plus shared ones — the same
+ * lens as the dashboard's Mine view) and, since 2026-11-20, THEIR tasks
+ * that are overdue or due today under the same lens, while yesterday's
+ * activity and the approvals count stay workspace-wide. A recipient with no users row gets
+ * the combined everyone view. A recipient whose email would say nothing at
+ * all (no follow-ups, no activity, no approvals) is skipped for the day.
  *
  * The cron trigger fires twice a day in UTC (13:00 + 14:00) so one of them
  * is always 9 AM in America/New_York regardless of DST; isSendTime() plus
@@ -58,31 +69,96 @@ final class DailySummaryService
             return 'skipped: already sent today';
         }
 
-        $data = $this->gather($now);
-        [$photoCids, $inlineImages] = $this->photoEmbeds($data);
-        $data['photoCids'] = $photoCids;
-        $html = View::render('emails/daily_summary', $data);
-        $subject = sprintf(
-            'Rolo: %d overdue, %d due today%s (%s)',
+        $users = new UserModel($this->db);
+        $sent = [];
+        $quiet = [];
+        $failed = [];
+
+        foreach ($this->config->summaryRecipients as $recipient) {
+            $user = $users->findByEmail($recipient);
+            $data = $this->gather($now, $user === null ? null : (int) $user['id']);
+
+            if (!self::hasNews($data)) {
+                $quiet[] = $recipient;
+                continue;
+            }
+
+            [$photoCids, $inlineImages] = $this->photoEmbeds($data);
+            $data['photoCids'] = $photoCids;
+            $html = View::render('emails/daily_summary', $data);
+            $subject = self::subject($data, $now);
+
+            try {
+                $this->mailer->send([$recipient], $subject, $html, $inlineImages);
+                $sent[] = $recipient;
+            } catch (\Throwable $e) {
+                // One bad mailbox must not cost the other person their
+                // email; the failure still surfaces in the cron outcome.
+                $failed[] = $recipient . ' (' . $e->getMessage() . ')';
+            } finally {
+                foreach ($inlineImages as $tmp) {
+                    @unlink($tmp);
+                }
+            }
+        }
+
+        // Record the day even when nobody had news, so the second DST cron
+        // tick doesn't re-evaluate an hour later.
+        $this->recordSent($today, $sent);
+
+        $parts = [];
+
+        if ($sent !== []) {
+            $parts[] = 'sent to ' . implode(', ', $sent);
+        }
+
+        if ($quiet !== []) {
+            $parts[] = 'nothing to report for ' . implode(', ', $quiet);
+        }
+
+        if ($failed !== []) {
+            $parts[] = 'FAILED for ' . implode(', ', $failed);
+        }
+
+        return implode('; ', $parts);
+    }
+
+    /**
+     * The subject line: follow-up counts always, tasks and approvals only
+     * when there are some.
+     *
+     * @param array<string, mixed> $data gather() output
+     */
+    public static function subject(array $data, DateTimeImmutable $now): string
+    {
+        $taskCount = count($data['tasks'] ?? []);
+
+        return sprintf(
+            'Rolo: %d overdue, %d due today%s%s (%s)',
             count($data['overdue']),
             count($data['dueToday']),
+            $taskCount > 0 ? sprintf(', %d task%s', $taskCount, $taskCount === 1 ? '' : 's') : '',
             $data['pendingApprovals'] > 0
                 ? sprintf(', %d to approve', $data['pendingApprovals'])
                 : '',
             $now->format('D M j'),
         );
+    }
 
-        try {
-            $this->mailer->send($this->config->summaryRecipients, $subject, $html, $inlineImages);
-        } finally {
-            foreach ($inlineImages as $tmp) {
-                @unlink($tmp);
-            }
-        }
-
-        $this->recordSent($today);
-
-        return 'sent to ' . implode(', ', $this->config->summaryRecipients);
+    /**
+     * Whether a recipient's email would say anything at all. Going-cold is
+     * deliberately not news on its own: it is a standing condition that
+     * would nag identically every day, and the dashboard already carries it.
+     *
+     * @param array<string, mixed> $data gather() output
+     */
+    public static function hasNews(array $data): bool
+    {
+        return $data['overdue'] !== []
+            || $data['dueToday'] !== []
+            || ($data['tasks'] ?? []) !== []
+            || $data['yesterdayActivities'] !== []
+            || (int) $data['pendingApprovals'] > 0;
     }
 
     /**
@@ -141,10 +217,18 @@ final class DailySummaryService
     }
 
     /**
+     * Build one recipient's email data. $forUserId applies the dashboard's
+     * Mine lens (their contacts plus shared ones) to the follow-up
+     * sections; null keeps the combined everyone view. Yesterday's
+     * activity and the approvals count are workspace-wide either way.
+     * Public for the database-backed tests.
+     *
      * @return array{
      *     appUrl: string,
+     *     lensLabel: string,
      *     overdue: list<array<string, mixed>>,
      *     dueToday: list<array<string, mixed>>,
+     *     tasks: list<array<string, mixed>>,
      *     goingColdCount: int,
      *     pendingApprovals: int,
      *     yesterdayActivities: list<array<string, mixed>>,
@@ -153,14 +237,14 @@ final class DailySummaryService
      *     yesterdayLabel: string
      * }
      */
-    private function gather(DateTimeImmutable $nowLocal): array
+    public function gather(DateTimeImmutable $nowLocal, ?int $forUserId = null): array
     {
         $today = $nowLocal->format('Y-m-d');
         $yesterday = $nowLocal->modify('-1 day')->format('Y-m-d');
 
         $contacts = new ContactModel($this->db);
-        $due = $contacts->dueBy($today, 0);
-        $goingCold = $contacts->goingCold($today);
+        $due = $contacts->dueBy($today, 0, $forUserId);
+        $goingCold = $contacts->goingCold($today, forUserId: $forUserId);
         $coldIds = array_map(static fn(array $c): int => (int) $c['id'], $goingCold);
 
         // Same split as the dashboard: going-cold contacts leave the
@@ -176,11 +260,20 @@ final class DailySummaryService
         ));
 
         return [
-            'appUrl' => $this->config->appUrl !== ''
-                ? $this->config->appUrl
-                : 'https://crm.example.com',
+            'appUrl' => $this->config->baseUrl(),
+            'lensLabel' => $forUserId === null
+                ? ''
+                : 'Your follow-ups and tasks: the ones you own plus shared ones.',
             'overdue' => $overdue,
             'dueToday' => $dueToday,
+            // Open tasks that are overdue or due today, same lens. Undated
+            // and later-dated tasks stay on the dashboard: this email is
+            // what needs doing today.
+            'tasks' => TaskLabels::decorate(
+                (new TaskModel($this->db))->open($forUserId, $today, includeUndated: false),
+                $today,
+                $this->config->appTimezone,
+            ),
             'goingColdCount' => count($goingCold),
             'pendingApprovals' => (new ProposalModel($this->db))->pendingCount(),
             'yesterdayActivities' => (new ActivityModel($this->db))->onDate($yesterday),
@@ -200,7 +293,10 @@ final class DailySummaryService
         return $stmt->fetch() !== false;
     }
 
-    private function recordSent(string $date): void
+    /**
+     * @param list<string> $recipients who actually got an email today
+     */
+    private function recordSent(string $date, array $recipients): void
     {
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO daily_summary_log (summary_date, recipients)
@@ -209,8 +305,8 @@ final class DailySummaryService
         );
         $stmt->execute([
             'date' => $date,
-            'recipients' => implode(',', $this->config->summaryRecipients),
-            'recipients2' => implode(',', $this->config->summaryRecipients),
+            'recipients' => implode(',', $recipients) ?: 'none',
+            'recipients2' => implode(',', $recipients) ?: 'none',
         ]);
     }
 }

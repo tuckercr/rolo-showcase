@@ -6,6 +6,8 @@ namespace App\Controllers;
 
 use App\Models\ContactModel;
 use App\Models\OrganizationModel;
+use App\Models\TaskModel;
+use App\Support\TaskLabels;
 use App\Support\Url;
 use App\Support\View;
 
@@ -36,7 +38,18 @@ final class OrganizationController extends Controller
 
         $contacts = (new ContactModel($this->db))->search('', '', (int) $organization['id']);
 
+        // Tasks about this organization or anyone in it, whoever owns them.
+        $tasks = new TaskModel($this->db);
+        $openTasks = $tasks->openForOrganization((int) $organization['id']);
+
         return $this->render('organizations/show', [
+            'openTaskCount' => count($openTasks),
+            'tasks' => TaskLabels::decorate(
+                array_merge($openTasks, $tasks->completedForOrganization((int) $organization['id'])),
+                $this->todayLocal()->format('Y-m-d'),
+                $this->config->appTimezone,
+            ),
+            'taskError' => TaskController::flashedError(),
             'pageTitle' => (string) $organization['name'],
             'organization' => $organization,
             'orgTypes' => OrganizationModel::ORG_TYPES,

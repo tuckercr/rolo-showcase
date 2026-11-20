@@ -130,6 +130,21 @@ final class SettingsController extends Controller
                 ->findForUser($this->auth->id()),
             'calendarEnabled' => (new GoogleCalendarService($this->config))->isConfigured(),
             'calendarFlash' => (string) ($_GET['calendar'] ?? ''),
+            'mcpUrl' => $this->personalMcpUrl(),
         ]);
+    }
+
+    /**
+     * The signed-in user's personal MCP connector link, or null when no
+     * API_USER_TOKENS entry exists for their email. Shown only to its
+     * owner on the session-gated settings page; the other user's token is
+     * never exposed.
+     */
+    private function personalMcpUrl(): ?string
+    {
+        $email = strtolower((string) ($this->auth->user()['email'] ?? ''));
+        $token = $this->config->apiUserTokens[$email] ?? null;
+
+        return $token === null ? null : $this->config->baseUrl() . '/mcp/' . $token;
     }
 }

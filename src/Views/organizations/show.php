@@ -9,6 +9,10 @@ use App\Support\View;
  * @var array<string, string> $orgTypes
  * @var list<array<string, mixed>> $contacts
  * @var string $today
+ * @var list<array<string, mixed>> $tasks open tasks about this organization or
+ *      its contacts, then the last few done ones, decorated
+ * @var int $openTaskCount
+ * @var string|null $taskError
  */
 
 include __DIR__ . '/../layout/header.php';
@@ -42,6 +46,40 @@ include __DIR__ . '/../layout/header.php';
         <?= View::e((string) $organization['notes']) ?>
     </div>
 <?php endif ?>
+
+<section id="tasks" class="mt-8">
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-brand-inksoft">
+        Tasks (<?= $openTaskCount ?>)
+    </h2>
+    <?php if ($taskError !== null) : ?>
+        <p class="mt-2 text-sm text-brand-red"><?= View::e($taskError) ?></p>
+    <?php endif ?>
+    <div class="mt-2 bg-white rounded-lg shadow">
+        <?php
+        if ($tasks !== []) {
+            $taskList = [
+                'rows' => $tasks,
+                'returnTo' => '/organizations/' . (int) $organization['id'],
+                'hostOrganizationId' => (int) $organization['id'],
+            ];
+            include __DIR__ . '/../partials/task_rows.php';
+        }
+        ?>
+        <div class="<?= $tasks !== [] ? 'border-t border-brand-cream2' : '' ?>">
+            <?php
+            $taskAdd = [
+                'returnTo' => '/organizations/' . (int) $organization['id'],
+                'organizationId' => (int) $organization['id'],
+            ];
+            include __DIR__ . '/../partials/task_add.php';
+            ?>
+        </div>
+    </div>
+    <p class="mt-1.5 text-xs text-brand-muted">
+        Tasks about this organization or anyone in it. To add one about a
+        person, use their contact page.
+    </p>
+</section>
 
 <section class="mt-8">
     <h2 class="text-sm font-semibold uppercase tracking-wide text-brand-inksoft">

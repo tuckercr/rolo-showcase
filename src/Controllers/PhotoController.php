@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Models\ContactModel;
 use App\Services\PhotoService;
+use App\Support\PhotoLink;
 use App\Support\View;
 use InvalidArgumentException;
 use RuntimeException;
@@ -30,7 +31,32 @@ final class PhotoController extends Controller
             return '';
         }
 
-        $path = PhotoService::forApp()->path((string) $photo);
+        return $this->serve((string) $photo, 'private');
+    }
+
+    /**
+     * The signed public variant (docs in Support\PhotoLink): how a contact
+     * headshot reaches Slack's credential-less image proxy. The signature
+     * covers the stored filename, so a replaced photo kills the old link.
+     *
+     * @param array<string, string> $vars route parameters
+     */
+    public function signedShow(array $vars): string
+    {
+        $contact = (new ContactModel($this->db))->find((int) $vars['id']);
+        $photo = (string) ($contact['photo'] ?? '');
+
+        if ($photo === '' || !PhotoLink::verify($this->config, (int) $vars['id'], $photo, (string) $vars['sig'])) {
+            http_response_code(404);
+            return '';
+        }
+
+        return $this->serve($photo, 'public');
+    }
+
+    private function serve(string $photo, string $cacheScope): string
+    {
+        $path = PhotoService::forApp()->path($photo);
 
         if (!is_file($path)) {
             http_response_code(404);
@@ -38,8 +64,8 @@ final class PhotoController extends Controller
         }
 
         // The stored name is random per upload, so it IS the content hash.
-        $etag = '"' . basename((string) $photo) . '"';
-        header('Cache-Control: private, max-age=86400');
+        $etag = '"' . basename($photo) . '"';
+        header(sprintf('Cache-Control: %s, max-age=86400', $cacheScope));
         header('ETag: ' . $etag);
 
         if (($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === $etag) {

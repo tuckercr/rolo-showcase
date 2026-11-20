@@ -99,6 +99,19 @@ final class ApiSerializerTest extends TestCase
         self::assertSame('pending', $out['status']);
         self::assertNull($out['error']);
         self::assertNull($out['reviewed_at']);
+        self::assertNull($out['proposed_by_user_id'], 'absent proposed_by (legacy token) serializes null');
+
+        $withProposer = ApiSerializer::proposal([
+            'id' => '9',
+            'action' => 'log_activity',
+            'proposed_by' => '3',
+            'status' => 'pending',
+            'summary' => 'Log a call with Maria',
+            'error' => null,
+            'created_at' => '2026-10-20 14:00:00',
+            'reviewed_at' => null,
+        ]);
+        self::assertSame(3, $withProposer['proposed_by_user_id']);
     }
 
     /**
@@ -128,5 +141,58 @@ final class ApiSerializerTest extends TestCase
             'created_at' => '2026-08-01 12:00:00',
             'updated_at' => '2026-10-01 12:00:00',
         ];
+    }
+
+    public function testTaskShape(): void
+    {
+        $row = [
+            'id' => '12',
+            'title' => 'Send the deck',
+            'notes' => null,
+            'due_date' => '2026-11-24',
+            'owner_id' => 2,
+            'owner_name' => 'Dana',
+            'contact_id' => 110,
+            'contact_name' => 'Steve Marsh',
+            'organization_id' => null,
+            'linked_organization_id' => 4,
+            'organization_name' => 'Northfield Labs',
+            'completed_at' => null,
+            'completed_by_name' => null,
+            'created_by_name' => 'Colin',
+            'updated_by_name' => 'Colin',
+            'created_at' => '2026-11-20 14:00:00',
+            'updated_at' => '2026-11-20 14:00:00',
+        ];
+
+        $task = ApiSerializer::task($row);
+
+        self::assertSame(12, $task['id']);
+        self::assertSame('open', $task['status']);
+        self::assertSame('2026-11-24', $task['due_date']);
+        self::assertSame('Dana', $task['owner']);
+        self::assertSame(['id' => 110, 'name' => 'Steve Marsh'], $task['contact']);
+        self::assertSame(
+            ['id' => 4, 'name' => 'Northfield Labs'],
+            $task['organization'],
+            'a contact task reports the organization it reaches through the contact',
+        );
+        self::assertNull($task['completed_at']);
+        self::assertSame('2026-11-20T14:00:00Z', $task['created_at']);
+
+        $done = ApiSerializer::task([
+            'owner_name' => null,
+            'contact_id' => null,
+            'linked_organization_id' => null,
+            'completed_at' => '2026-11-21 02:30:00',
+            'completed_by_name' => 'Dana',
+        ] + $row);
+
+        self::assertSame('done', $done['status']);
+        self::assertNull($done['owner'], 'null owner means shared');
+        self::assertNull($done['contact']);
+        self::assertNull($done['organization']);
+        self::assertSame('2026-11-21T02:30:00Z', $done['completed_at']);
+        self::assertSame('Dana', $done['completed_by']);
     }
 }

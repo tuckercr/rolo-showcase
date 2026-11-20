@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Support\Config;
+use App\Support\Mrkdwn;
 use App\Support\SlackClient;
 
 /**
@@ -39,7 +40,7 @@ final class SlackCelebrationService
             return;
         }
 
-        $url = $this->config->appUrl !== '' ? $this->config->appUrl : 'https://crm.example.com';
+        $url = $this->config->baseUrl();
         $text = sprintf(
             ':tada: %s%s is now an Active client!',
             $name,
@@ -48,7 +49,7 @@ final class SlackCelebrationService
 
         $blocks = [[
             'type' => 'section',
-            'text' => ['type' => 'mrkdwn', 'text' => '*' . $text . '*'],
+            'text' => ['type' => 'mrkdwn', 'text' => '*' . Mrkdwn::esc($text) . '*'],
             'accessory' => [
                 'type' => 'button',
                 'text' => ['type' => 'plain_text', 'text' => 'Open'],

@@ -1,7 +1,7 @@
 -- Data repair: before 2026-07-10 the app ignored an activity's explicit
 -- "follow up by" date and always rescheduled next_touch_date from the stage
 -- cadence rule. Retroactively apply the explicit date wherever a contact's
--- MOST RECENT activity requested one (e.g. Ryan Maginn, logged 2026-07-09
+-- MOST RECENT activity requested one (e.g. one contact, logged 2026-07-09
 -- with follow-up needed by 2026-07-11 but next_touch showing 2026-09-07).
 
 UPDATE contacts c

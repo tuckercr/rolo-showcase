@@ -68,15 +68,26 @@ final class ApprovalController extends Controller
             return $this->redirect('/proposals');
         }
 
+        // Win the pending -> approved compare-and-set BEFORE applying, so a
+        // double-submit (or a race with the Slack Approve button) can't run
+        // apply() twice and write duplicate rows.
+        if (!$proposals->decide((int) $proposal['id'], 'approved', $this->auth->id())) {
+            return $this->redirect('/proposals');
+        }
+
         try {
             (new ProposalService($this->config, $this->db))->apply($proposal, $this->auth->id());
         } catch (Throwable $e) {
-            $proposals->decide((int) $proposal['id'], 'rejected', $this->auth->id(), $e->getMessage());
+            $proposals->decide(
+                (int) $proposal['id'],
+                'rejected',
+                $this->auth->id(),
+                $e->getMessage(),
+                fromStatus: 'approved',
+            );
 
             return $this->redirect('/proposals?apply_error=' . rawurlencode($e->getMessage()));
         }
-
-        $proposals->decide((int) $proposal['id'], 'approved', $this->auth->id());
 
         return $this->redirect('/proposals');
     }

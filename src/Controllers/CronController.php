@@ -37,7 +37,7 @@ final class CronController extends Controller
             http_response_code(500);
 
             // The morning email failing silently is how a rotated DB
-            // password went unnoticed on the diagnostic app — DM the ops
+            // password went unnoticed on a sibling app — DM the ops
             // users. If Slack is down too, nothing can be done from here;
             // the Cloudflare watchdog sees the 500 and alerts externally.
             $notifier = new SlackOpsNotifier($this->config, new SlackClient($this->config));
@@ -51,10 +51,12 @@ final class CronController extends Controller
         // stay a dumb heartbeat hitting this one endpoint 4x a day (13:00,
         // 14:00, 21:00, 22:00 UTC) with all scheduling policy living here.
         // The debrief is never forced from this endpoint; its own
-        // /cron/slack-debrief?force=1 exists for manual tests.
+        // /cron/slack-debrief?force=1 exists for manual tests. The cold
+        // alert is forced only by its own explicit ?force=cold, so testing
+        // the email or debrief can't fire a surprise cold alert.
         return $out
             . $this->announceApprovals()
-            . $this->coldAlert($force)
+            . $this->coldAlert($this->forceCold())
             . $this->debrief();
     }
 
@@ -89,7 +91,7 @@ final class CronController extends Controller
         $force = ($_GET['force'] ?? '') === '1';
 
         try {
-            return $service->run($force) . "\n" . $this->announceApprovals() . $this->coldAlert($force);
+            return $service->run($force) . "\n" . $this->announceApprovals() . $this->coldAlert($this->forceCold());
         } catch (\RuntimeException $e) {
             http_response_code(500);
             return 'Failed: ' . $e->getMessage() . "\n";
@@ -124,6 +126,13 @@ final class CronController extends Controller
         $notifier = new SlackOpsNotifier($this->config, new SlackClient($this->config));
 
         return $notifier->notify($notice) . "\n";
+    }
+
+    /** ?force=cold forces the cold alert alone (never ?force=1, which is
+     *  the debrief/email test and must not drag a cold alert along). */
+    private function forceCold(): bool
+    {
+        return ($_GET['force'] ?? '') === 'cold';
     }
 
     private function coldAlert(bool $force): string

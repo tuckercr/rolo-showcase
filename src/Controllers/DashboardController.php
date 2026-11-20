@@ -6,7 +6,11 @@ namespace App\Controllers;
 
 use App\Models\ActivityModel;
 use App\Models\ContactModel;
+use App\Models\TaskModel;
 use App\Support\Dates;
+use App\Support\TaskLabels;
+use DateTimeImmutable;
+use DateTimeZone;
 
 final class DashboardController extends Controller
 {
@@ -18,9 +22,10 @@ final class DashboardController extends Controller
         $todayDate = $this->todayLocal();
         $today = $todayDate->format('Y-m-d');
         $contacts = new ContactModel($this->db);
+        $scope = $this->followUpScope();
 
-        $due = $contacts->dueBy($today);
-        $cold = $contacts->goingCold($today, self::COLD_AFTER_DAYS);
+        $due = $contacts->dueBy($today, 6, $scope);
+        $cold = $contacts->goingCold($today, self::COLD_AFTER_DAYS, $scope);
         $coldIds = array_map(static fn(array $c): int => (int) $c['id'], $cold);
 
         // Going-cold contacts leave the ordinary Overdue list; mildly late
@@ -34,6 +39,26 @@ final class DashboardController extends Controller
             $due,
             static fn(array $c): bool => (string) $c['next_touch_date'] >= $today,
         ));
+
+        // Tasks under the same lens: everything overdue, due within the
+        // same 7-day window as the follow-ups, or undated. Later-dated ones
+        // are counted, not listed (they live on /tasks). Tasks ticked in the
+        // last day stay visible, checked, so a mis-tick is one click to undo.
+        $tasks = new TaskModel($this->db);
+        $openTasks = $tasks->open($scope, $todayDate->modify('+6 days')->format('Y-m-d'));
+        $doneTasks = $tasks->completed(
+            $scope,
+            (new DateTimeImmutable('-1 day', new DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+            5,
+        );
+
+        // Empty Mine view: say how many contacts the user owns rather than
+        // showing three bare "nothing here" sections (Colin, 2026-11-19).
+        $ownedCount = null;
+
+        if ($scope !== null && $overdue === [] && $thisWeek === [] && $cold === [] && $openTasks === []) {
+            $ownedCount = $contacts->countForOwner($scope);
+        }
 
         $zone = $this->config->appTimezone;
 
@@ -53,11 +78,23 @@ final class DashboardController extends Controller
 
         return $this->render('dashboard/index', [
             'pageTitle' => 'Dashboard',
+            'view' => $scope === null ? 'everyone' : 'mine',
+            'ownedCount' => $ownedCount,
+            'ownerId' => $scope,
             'today' => $today,
             'tomorrow' => $todayDate->modify('+1 day')->format('Y-m-d'),
             'overdue' => $overdue,
             'thisWeek' => $thisWeek,
             'goingCold' => $cold,
+            'openTaskCount' => count($openTasks),
+            'laterTaskCount' => $tasks->countOpen($scope) - count($openTasks),
+            'tasks' => TaskLabels::decorate(
+                array_merge($openTasks, $doneTasks),
+                $today,
+                $this->config->appTimezone,
+            ),
+            'contactOptions' => $contacts->options(),
+            'taskError' => TaskController::flashedError(),
             'activityTypes' => ActivityModel::TYPES,
             'snoozeOptions' => ContactController::SNOOZE_OPTIONS,
         ]);

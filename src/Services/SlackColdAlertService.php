@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\ContactModel;
 use App\Support\Config;
 use App\Support\Database;
+use App\Support\Mrkdwn;
 use App\Support\SlackClient;
 use DateTimeImmutable;
 
@@ -47,23 +48,14 @@ final class SlackColdAlertService
         }
 
         $today = $now->format('Y-m-d');
+        $lastWeek = $now->modify('-7 days')->format('Y-m-d');
         $contacts = new ContactModel($this->db);
-        $cold = $contacts->goingCold($today);
-        $coldLastWeek = $contacts->goingCold($now->modify('-7 days')->format('Y-m-d'));
-        $lastWeekIds = array_map(static fn(array $c): int => (int) $c['id'], $coldLastWeek);
 
-        $new = array_values(array_filter(
-            $cold,
-            static fn(array $c): bool => !in_array((int) $c['id'], $lastWeekIds, true),
-        ));
-
-        if ($new === []) {
-            return sprintf('cold alert: nothing newly cold (%d already cold)', count($cold));
-        }
-
-        [$text, $blocks] = $this->buildMessage($new, count($cold) - count($new));
         $sent = 0;
         $skipped = 0;
+        $failed = 0;
+        $quiet = 0;
+        $newCounts = [];
 
         foreach ($this->config->slackDebriefUsers as $slackUser) {
             if (!$force && $this->alreadySentFor($today, $slackUser)) {
@@ -71,16 +63,61 @@ final class SlackColdAlertService
                 continue;
             }
 
-            $this->slack->postMessage($slackUser, $text, $blocks);
-            $this->recordSent($today, $slackUser);
+            // Each person is alerted about THEIR newly cold contacts plus
+            // shared ones (the dashboard's Mine lens); an unmapped Slack
+            // account keeps the combined view.
+            $lens = $this->config->slackUserMap[$slackUser] ?? null;
+            $cold = $contacts->goingCold($today, forUserId: $lens);
+            $lastWeekIds = array_map(
+                static fn(array $c): int => (int) $c['id'],
+                $contacts->goingCold($lastWeek, forUserId: $lens),
+            );
+
+            $new = array_values(array_filter(
+                $cold,
+                static fn(array $c): bool => !in_array((int) $c['id'], $lastWeekIds, true),
+            ));
+
+            if ($new === []) {
+                $quiet++;
+                continue;
+            }
+
+            [$text, $blocks] = $this->buildMessage($new, count($cold) - count($new));
+
+            // One person's broken DM must not stop the other's.
+            try {
+                $this->slack->postMessage($slackUser, $text, $blocks);
+            } catch (\Throwable) {
+                $failed++;
+                continue;
+            }
+
+            // A forced run is a manual test; it must not claim the day's
+            // slot and silence the real Monday send (the same rule the
+            // debrief learned on 2026-11-10).
+            if (!$force) {
+                $this->recordSent($today, $slackUser);
+            }
+
             $sent++;
+            $newCounts[] = count($new);
+        }
+
+        if ($sent === 0 && $failed === 0 && $skipped === 0) {
+            return sprintf(
+                'cold alert: nothing newly cold (%d already cold)',
+                count($contacts->goingCold($today)),
+            );
         }
 
         return sprintf(
-            'cold alert: sent %d, already sent %d, newly cold %d',
+            'cold alert: sent %d, already sent %d, quiet %d, newly cold %s%s',
             $sent,
             $skipped,
-            count($new),
+            $quiet,
+            $newCounts === [] ? '0' : implode('/', $newCounts),
+            $failed > 0 ? sprintf(', %d DM(s) failed', $failed) : '',
         );
     }
 
@@ -90,7 +127,7 @@ final class SlackColdAlertService
      */
     private function buildMessage(array $new, int $stillCold): array
     {
-        $url = $this->config->appUrl !== '' ? $this->config->appUrl : 'https://crm.example.com';
+        $url = $this->config->baseUrl();
         $text = sprintf(
             '%d contact%s went cold this week.',
             count($new),
@@ -119,8 +156,8 @@ final class SlackColdAlertService
                     'type' => 'mrkdwn',
                     'text' => sprintf(
                         '*%s*%s · last contacted %s',
-                        (string) $contact['name'],
-                        $org !== '' ? ' (' . $org . ')' : '',
+                        Mrkdwn::esc((string) $contact['name']),
+                        $org !== '' ? ' (' . Mrkdwn::esc($org) . ')' : '',
                         $last !== '' ? $last : 'never',
                     ),
                 ],

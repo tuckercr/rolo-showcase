@@ -40,6 +40,7 @@ final class ApiSerializer
                 ? null
                 : (int) $c['cadence_days_override'],
             'tags' => $tags,
+            'owner' => $c['owner_name'] ?? null,
             'created_by' => $c['created_by_name'] ?? null,
             'updated_by' => $c['updated_by_name'] ?? null,
             'created_at' => ApiFormat::isoDateTime($c['created_at'] ?? null),
@@ -89,6 +90,36 @@ final class ApiSerializer
     }
 
     /**
+     * @param array<string, mixed> $t row from TaskModel (BASE_SELECT shape)
+     * @return array<string, mixed>
+     */
+    public static function task(array $t): array
+    {
+        return [
+            'id' => (int) $t['id'],
+            'title' => (string) $t['title'],
+            'notes' => $t['notes'],
+            'status' => $t['completed_at'] === null ? 'open' : 'done',
+            'due_date' => $t['due_date'],
+            'owner' => $t['owner_name'] ?? null,
+            'contact' => $t['contact_id'] === null ? null : [
+                'id' => (int) $t['contact_id'],
+                'name' => $t['contact_name'] ?? null,
+            ],
+            'organization' => ($t['linked_organization_id'] ?? null) === null ? null : [
+                'id' => (int) $t['linked_organization_id'],
+                'name' => $t['organization_name'] ?? null,
+            ],
+            'completed_at' => ApiFormat::isoDateTime($t['completed_at'] ?? null),
+            'completed_by' => $t['completed_by_name'] ?? null,
+            'created_by' => $t['created_by_name'] ?? null,
+            'updated_by' => $t['updated_by_name'] ?? null,
+            'created_at' => ApiFormat::isoDateTime($t['created_at'] ?? null),
+            'updated_at' => ApiFormat::isoDateTime($t['updated_at'] ?? null),
+        ];
+    }
+
+    /**
      * @param array<string, mixed> $p api_proposals row
      * @return array<string, mixed>
      */
@@ -97,6 +128,9 @@ final class ApiSerializer
         return [
             'id' => (int) $p['id'],
             'action' => (string) $p['action'],
+            'proposed_by_user_id' => isset($p['proposed_by']) && $p['proposed_by'] !== null
+                ? (int) $p['proposed_by']
+                : null,
             'status' => (string) $p['status'],
             'summary' => (string) $p['summary'],
             'error' => $p['error'],

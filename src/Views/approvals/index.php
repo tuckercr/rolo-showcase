@@ -64,7 +64,9 @@ $prettyPayload = static function (string $json): string {
                         <?php endif ?>
                     </p>
                     <p class="mt-0.5 text-xs text-brand-muted">
-                        Proposed by an AI agent (<?= View::e((string) $proposal['token_name']) ?> token)
+                        Proposed by <?= $proposal['proposed_by'] === null
+                            ? View::e('an AI agent (' . (string) $proposal['token_name'] . ' token)')
+                            : View::e((string) $proposal['proposed_by_name']) . '&rsquo;s AI agent' ?>
                         &middot; <?= View::e((string) $proposal['created_at']) ?> UTC
                     </p>
 

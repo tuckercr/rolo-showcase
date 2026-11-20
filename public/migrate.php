@@ -3,7 +3,7 @@
 /**
  * Run pending database migrations over HTTP.
  *
- * Why this exists: the IONOS MariaDB host (db5020832313.hosting-data.io) has
+ * Why this exists: the IONOS MariaDB host (db.internal.example) has
  * no public DNS record — confirmed via `dig`/Google's public DNS returning
  * NXDOMAIN — so it's only reachable from inside IONOS's own network. The
  * SFTP deploy account has no shell, so bin/migrate.php can never be run

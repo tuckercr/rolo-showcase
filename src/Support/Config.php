@@ -24,6 +24,10 @@ final readonly class Config
      *        evening debrief DM (approval DMs go to everyone in the map)
      * @param list<string> $slackOpsUsers Slack member ids who get devops
      *        notices (deploys, migrations, failures) — normally just Colin
+     * @param array<string, string> $apiUserTokens lowercase user email =>
+     *        bearer token. A per-user token authenticates the agent AS that
+     *        person: read-write (writes still only queue proposals), with
+     *        audit rows and proposals attributed to them.
      */
     public function __construct(
         public string $appEnv,
@@ -47,6 +51,7 @@ final readonly class Config
         public array $summaryRecipients = [],
         public string $apiTokenRead = '',
         public string $apiTokenWrite = '',
+        public array $apiUserTokens = [],
         public string $slackBotToken = '',
         public string $slackSigningSecret = '',
         public array $slackUserMap = [],
@@ -92,6 +97,7 @@ final readonly class Config
             summaryRecipients: self::parseEmailList(self::optionalString($env, 'SUMMARY_RECIPIENTS')),
             apiTokenRead: self::optionalString($env, 'API_TOKEN_READ'),
             apiTokenWrite: self::optionalString($env, 'API_TOKEN_WRITE'),
+            apiUserTokens: self::parseUserTokens(self::optionalString($env, 'API_USER_TOKENS')),
             slackBotToken: self::optionalString($env, 'SLACK_BOT_TOKEN'),
             slackSigningSecret: self::optionalString($env, 'SLACK_SIGNING_SECRET'),
             slackUserMap: self::parseSlackUserMap(self::optionalString($env, 'SLACK_USER_MAP')),
@@ -109,6 +115,16 @@ final readonly class Config
     public function isLocal(): bool
     {
         return $this->appEnv === 'local';
+    }
+
+    /**
+     * The absolute URL links in Slack messages and emails point at. Falls
+     * back to the production host when APP_URL is unset so a notice link is
+     * never relative — one fallback here, not repeated at every call site.
+     */
+    public function baseUrl(): string
+    {
+        return $this->appUrl !== '' ? $this->appUrl : 'https://crm.example.com';
     }
 
     /**
@@ -160,6 +176,36 @@ final readonly class Config
         }
 
         return $map;
+    }
+
+    /**
+     * "colin@x.com:a1b2...,dana@x.com:c3d4..." => email => token.
+     * Malformed entries are dropped rather than fatal, same policy as the
+     * Slack map. Tokens under 16 characters are dropped too: a truncated
+     * paste must never become a guessable credential.
+     *
+     * @return array<string, string>
+     */
+    private static function parseUserTokens(string $raw): array
+    {
+        $tokens = [];
+
+        foreach (explode(',', $raw) as $pair) {
+            $parts = explode(':', trim($pair), 2);
+
+            if (count($parts) !== 2) {
+                continue;
+            }
+
+            $email = strtolower(trim($parts[0]));
+            $token = trim($parts[1]);
+
+            if ($email !== '' && strlen($token) >= 16) {
+                $tokens[$email] = $token;
+            }
+        }
+
+        return $tokens;
     }
 
     /**

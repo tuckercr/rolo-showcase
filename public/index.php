@@ -135,6 +135,10 @@ $publicRoutes = [
     '/privacy', // the OAuth consent screen links here; must load signed out
 ];
 
+// Parameterized public paths (exact-match list above can't hold them):
+// /photo/{id}/{sig} is HMAC-gated inside PhotoController::signedShow.
+$isPublicPrefix = static fn(string $uri): bool => str_starts_with($uri, '/photo/');
+
 $jsonError = static function (int $status, string $code, string $message): void {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
@@ -169,7 +173,7 @@ switch ($routeInfo[0]) {
         break;
 
     case Dispatcher::FOUND:
-        if (!$isApi && !in_array($uri, $publicRoutes, true) && !$auth->check()) {
+        if (!$isApi && !in_array($uri, $publicRoutes, true) && !$isPublicPrefix($uri) && !$auth->check()) {
             // Remember where a signed-out GET was headed (the Slack Open
             // button, a bookmark), so sign-in resumes there instead of
             // dumping the person on the dashboard. A POST can't be resumed.

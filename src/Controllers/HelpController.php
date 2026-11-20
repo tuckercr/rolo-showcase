@@ -14,14 +14,24 @@ final class HelpController extends Controller
 {
     public function index(): string
     {
-        $appUrl = $this->config->appUrl !== ''
-            ? $this->config->appUrl
-            : 'https://crm.example.com';
+        $appUrl = $this->config->baseUrl();
 
         return $this->render('help/index', [
             'pageTitle' => 'Help',
             'appUrl' => $appUrl,
             'appHost' => (string) parse_url($appUrl, PHP_URL_HOST),
+        ]);
+    }
+
+    /**
+     * The tasks user guide: what a task is, how it differs from a
+     * follow-up, and how to work with tasks on the web, in Slack and
+     * through an AI assistant.
+     */
+    public function tasks(): string
+    {
+        return $this->render('help/tasks', [
+            'pageTitle' => 'Tasks guide',
         ]);
     }
 

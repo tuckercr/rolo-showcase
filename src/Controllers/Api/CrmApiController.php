@@ -9,6 +9,7 @@ use App\Models\ContactModel;
 use App\Models\OrganizationModel;
 use App\Models\StageModel;
 use App\Models\TagModel;
+use App\Models\TaskModel;
 use App\Support\ApiFormat;
 use App\Support\ApiSerializer;
 
@@ -25,6 +26,12 @@ final class CrmApiController extends ApiController
 
         $limit = ApiFormat::clampLimit($_GET['limit'] ?? null);
 
+        try {
+            $owner = $this->resolveOwnerFilter((string) ($_GET['owner'] ?? ''));
+        } catch (\InvalidArgumentException $e) {
+            return $this->respondError(400, 'invalid_owner', $e->getMessage());
+        }
+
         $rows = (new ContactModel($this->db))->apiList(
             query: trim((string) ($_GET['query'] ?? '')),
             stage: trim((string) ($_GET['stage'] ?? '')),
@@ -32,6 +39,7 @@ final class CrmApiController extends ApiController
             afterId: ApiFormat::decodeCursor(isset($_GET['cursor']) ? (string) $_GET['cursor'] : null),
             limit: $limit,
             tag: trim((string) ($_GET['tag'] ?? '')),
+            owner: $owner,
         );
 
         $tagsByContact = (new TagModel($this->db))->namesForContacts(
@@ -86,8 +94,36 @@ final class CrmApiController extends ApiController
             ApiSerializer::activity(...),
             array_slice((new ActivityModel($this->db))->forContact((int) $contact['id']), 0, 10),
         );
+        $payload['open_tasks'] = $this->openTasksForContact((int) $contact['id']);
 
         return $this->respond(['data' => $payload]);
+    }
+
+    public function tasksIndex(): string
+    {
+        $this->requireToken('read');
+
+        try {
+            return $this->respond($this->taskList($_GET));
+        } catch (\InvalidArgumentException $e) {
+            return $this->respondError(400, 'invalid_filter', $e->getMessage());
+        }
+    }
+
+    /**
+     * @param array<string, string> $vars route parameters
+     */
+    public function tasksShow(array $vars): string
+    {
+        $this->requireToken('read');
+
+        $task = (new TaskModel($this->db))->find((int) $vars['id']);
+
+        if ($task === null) {
+            return $this->respondError(404, 'not_found', 'No task with that id.');
+        }
+
+        return $this->respond(['data' => ApiSerializer::task($task)]);
     }
 
     public function organizationsIndex(): string

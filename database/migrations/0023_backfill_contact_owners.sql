@@ -1,0 +1,7 @@
+-- Intentionally empty in the public showcase.
+--
+-- In the production deployment this migration was a one-off data repair:
+-- when contact ownership arrived (migration 0021), every existing contact
+-- was assigned to the person whose pipeline it had always been. A fresh
+-- install has no such history, so contacts simply start shared (owner_id
+-- NULL) until someone claims them on the contact form.

@@ -242,6 +242,112 @@ final class ContactModelTest extends DatabaseTestCase
         self::assertSame(['Amy Adams', 'Zoe Zimmer'], $names);
     }
 
+    public function testDueByPersonalLensShowsOwnPlusSharedOnly(): void
+    {
+        // Seeded users: 1 = Colin, 2 = Dana (migration 0002).
+        $this->insertContact('Mine Mia', next: self::TODAY, owner: 1);
+        $this->insertContact('Theirs Theo', next: self::TODAY, owner: 2);
+        $this->insertContact('Shared Sam', next: self::TODAY, owner: null);
+
+        self::assertSame(
+            ['Mine Mia', 'Shared Sam'],
+            array_column($this->contacts->dueBy(self::TODAY, forUserId: 1), 'name'),
+            'the personal lens is own + shared, never another user\'s contacts',
+        );
+        self::assertSame(
+            ['Mine Mia', 'Shared Sam', 'Theirs Theo'],
+            array_column($this->contacts->dueBy(self::TODAY), 'name'),
+            'without a lens the combined everyone view is unchanged',
+        );
+    }
+
+    public function testGoingColdAndDueExcludingColdHonorTheLens(): void
+    {
+        $this->insertContact('Cold Mine', next: '2026-09-01', owner: 1);
+        $this->insertContact('Cold Theirs', next: '2026-09-01', owner: 2);
+        $this->insertContact('Late Shared', next: '2026-10-20', owner: null);
+
+        self::assertSame(
+            ['Cold Mine'],
+            array_column($this->contacts->goingCold(self::TODAY, forUserId: 1), 'name'),
+        );
+        self::assertSame(
+            ['Late Shared'],
+            array_column($this->contacts->dueExcludingCold(self::TODAY, 1), 'name'),
+            'the dashboard split applies within the lens: cold leaves, shared stays',
+        );
+    }
+
+    public function testSearchFiltersByOwnerAndShared(): void
+    {
+        $this->insertContact('Mine Mia', next: null, owner: 1);
+        $this->insertContact('Theirs Theo', next: null, owner: 2);
+        $this->insertContact('Shared Sam', next: null, owner: null);
+
+        self::assertSame(
+            ['Mine Mia'],
+            array_column($this->contacts->search(owner: '1'), 'name'),
+        );
+        self::assertSame(
+            ['Shared Sam'],
+            array_column($this->contacts->search(owner: 'shared'), 'name'),
+        );
+        self::assertCount(3, $this->contacts->search(), 'no filter means any owner');
+    }
+
+    public function testApiListFiltersByOwner(): void
+    {
+        $this->insertContact('Mine Mia', next: null, owner: 1);
+        $this->insertContact('Theirs Theo', next: null, owner: 2);
+        $this->insertContact('Shared Sam', next: null, owner: null);
+
+        $list = fn(string $owner): array => array_column(
+            $this->contacts->apiList('', '', '', 0, 50, owner: $owner),
+            'name',
+        );
+
+        self::assertSame(['Mine Mia'], $list('1'));
+        self::assertSame(['Shared Sam'], $list('shared'));
+        self::assertCount(3, $list(''), 'no owner filter means the whole workspace');
+    }
+
+    public function testCountForOwnerIgnoresOthersAndTrash(): void
+    {
+        $this->insertContact('Mine Mia', next: null, owner: 1);
+        $this->insertContact('Theirs Theo', next: null, owner: 2);
+        $this->insertContact('Shared Sam', next: null, owner: null);
+        $trashed = $this->insertContact('Trashed Tom', next: null, owner: 1);
+        $this->contacts->trash($trashed, 1);
+
+        self::assertSame(1, $this->contacts->countForOwner(1));
+        self::assertSame(0, $this->contacts->countForOwner(99));
+    }
+
+    public function testCreateAndUpdatePersistTheOwner(): void
+    {
+        $data = [
+            'name' => 'Owned Olga',
+            'organization_id' => null,
+            'title' => null,
+            'relationship_status' => 'Conversation Started',
+            'relationship_type' => null,
+            'owner_id' => 2,
+            'email' => null,
+            'phone' => null,
+            'linkedin_url' => null,
+            'cadence_days_override' => null,
+            'human_detail' => null,
+            'next_touch_date' => null,
+        ];
+
+        $id = $this->contacts->create($data, 1);
+        self::assertSame(2, (int) $this->contacts->find($id)['owner_id']);
+        self::assertSame('Dana', $this->contacts->find($id)['owner_name']);
+
+        $this->contacts->update($id, ['owner_id' => null] + $data, 1);
+        self::assertNull($this->contacts->find($id)['owner_id']);
+    }
+
     public function testSnoozeSetsRestoresAndClearsTheNextDate(): void
     {
         $id = $this->insertContact('Snoozy Sam', next: '2026-10-21');
@@ -272,13 +378,13 @@ final class ContactModelTest extends DatabaseTestCase
             "INSERT INTO contacts (name, email, relationship_status, created_by, updated_by, deleted_at)
              VALUES (?, ?, 'Conversation Started', 1, 1, ?)"
         );
-        $insert->execute(['Brad Day', 'Brad@ETHIA.com', null]);
+        $insert->execute(['Pat Doyle', 'Pat@LARKSPUR.example', null]);
         $insert->execute(['Trashed Tina', 'tina@gone.com', '2026-10-01 00:00:00']);
 
-        $byEmail = $this->contacts->activeByEmails(['brad@ethia.com', 'tina@gone.com', '']);
+        $byEmail = $this->contacts->activeByEmails(['pat@larkspur.example', 'tina@gone.com', '']);
 
-        self::assertSame(['brad@ethia.com'], array_keys($byEmail), 'stored casing matches, trash does not');
-        self::assertSame('Brad Day', $byEmail['brad@ethia.com']['name']);
+        self::assertSame(['pat@larkspur.example'], array_keys($byEmail), 'stored casing matches, trash does not');
+        self::assertSame('Pat Doyle', $byEmail['pat@larkspur.example']['name']);
 
         self::assertSame([], $this->contacts->activeByEmails([]));
     }
@@ -290,17 +396,19 @@ final class ContactModelTest extends DatabaseTestCase
         ?string $lastTouch = null,
         string $createdAt = '2026-08-01 12:00:00',
         ?int $orgId = null,
+        ?int $owner = null,
     ): int {
         $stmt = self::db()->pdo()->prepare(
             'INSERT INTO contacts
-                (name, organization_id, relationship_status, last_touch_date,
+                (name, organization_id, relationship_status, owner_id, last_touch_date,
                  next_touch_date, created_by, updated_by, created_at)
-             VALUES (:name, :org_id, :stage, :last_touch, :next_touch, 1, 1, :created_at)'
+             VALUES (:name, :org_id, :stage, :owner, :last_touch, :next_touch, 1, 1, :created_at)'
         );
         $stmt->execute([
             'name' => $name,
             'org_id' => $orgId,
             'stage' => $stage,
+            'owner' => $owner,
             'last_touch' => $lastTouch,
             'next_touch' => $next,
             'created_at' => $createdAt,

@@ -86,6 +86,63 @@ final class TagModelTest extends DatabaseTestCase
         self::assertSame([], $this->tags->namesForContacts([]));
     }
 
+    public function testUpdateRenamesAndDescribes(): void
+    {
+        $contactId = $this->insertContact('Tagged Tia');
+        $this->tags->addForContact($contactId, ['investors']);
+        $id = $this->tags->findOrCreate('investors');
+
+        $outcome = $this->tags->update($id, 'Investor', 'People who write checks');
+
+        self::assertSame('updated', $outcome);
+        self::assertSame(['Investor'], $this->tags->namesForContact($contactId));
+        self::assertSame('People who write checks', (string) ((array) $this->tags->find($id))['description']);
+        self::assertNull($this->tags->update(9999, 'ghost', ''));
+    }
+
+    public function testUpdateMergesOntoAnExistingName(): void
+    {
+        $a = $this->insertContact('Alice');
+        $b = $this->insertContact('Bruno');
+        $this->tags->addForContact($a, ['VC', 'investors']);
+        $this->tags->addForContact($b, ['investors']);
+        $vcId = $this->tags->findOrCreate('VC');
+        $investorsId = $this->tags->findOrCreate('investors');
+
+        // Case-insensitive collision: renaming VC to "Investors" merges into it.
+        $outcome = $this->tags->update($vcId, 'Investors', 'One group now');
+
+        self::assertSame('merged', $outcome);
+        self::assertSame(1, $this->tagCount());
+        self::assertSame(['investors'], $this->tags->namesForContact($a));
+        self::assertSame(['investors'], $this->tags->namesForContact($b));
+        // The survivor had no description, so it takes the submitted one.
+        self::assertSame('One group now', (string) ((array) $this->tags->find($investorsId))['description']);
+    }
+
+    public function testDeleteDetachesEveryContact(): void
+    {
+        $contactId = $this->insertContact('Tagged Tia');
+        $this->tags->addForContact($contactId, ['vip']);
+
+        self::assertTrue($this->tags->delete($this->tags->findOrCreate('vip')));
+        self::assertSame([], $this->tags->namesForContact($contactId));
+        self::assertSame(0, $this->tagCount());
+        self::assertFalse($this->tags->delete(9999));
+    }
+
+    public function testPruneKeepsDescribedTags(): void
+    {
+        $contactId = $this->insertContact('Tagged Tia');
+        $this->tags->addForContact($contactId, ['curated', 'ad hoc']);
+        $this->tags->update($this->tags->findOrCreate('curated'), 'curated', 'Keep me');
+
+        // Detaching both orphans both; only the described one survives.
+        $this->tags->syncForContact($contactId, []);
+
+        self::assertSame(['curated'], $this->tags->names());
+    }
+
     private function insertContact(string $name): int
     {
         $stmt = self::db()->pdo()->prepare(

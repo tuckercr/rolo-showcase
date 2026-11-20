@@ -58,4 +58,22 @@ abstract class Controller
     {
         return new \DateTimeImmutable('today', $this->config->appTimezone);
     }
+
+    /**
+     * The follow-up lens: the signed-in user's id for "Mine" (their owned
+     * contacts plus shared ones — see migration 0021), null for "Everyone".
+     * Chosen with ?view=mine|everyone, remembered for the session, and
+     * defaults to Mine. The contact page's follow-up queue reads it too so
+     * "next in queue" always matches what the dashboard shows.
+     */
+    protected function followUpScope(): ?int
+    {
+        $view = $_GET['view'] ?? null;
+
+        if ($view === 'mine' || $view === 'everyone') {
+            $_SESSION['follow_up_view'] = $view;
+        }
+
+        return ($_SESSION['follow_up_view'] ?? 'mine') === 'mine' ? $this->auth->id() : null;
+    }
 }

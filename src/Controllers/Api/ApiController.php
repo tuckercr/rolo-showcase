@@ -4,23 +4,39 @@ declare(strict_types=1);
 
 namespace App\Controllers\Api;
 
+use App\Models\TaskModel;
+use App\Models\UserModel;
+use App\Services\OwnerResolver;
+use App\Support\ApiFormat;
+use App\Support\ApiSerializer;
 use App\Support\Auth;
 use App\Support\Config;
 use App\Support\Database;
+use InvalidArgumentException;
 
 /**
  * Base for the agent-facing JSON API (docs/API.md).
  *
- * Auth is bearer-token, not session: tokens live in the server .env
- * (API_TOKEN_READ / API_TOKEN_WRITE), compared in constant time. The write
- * token also grants read. Every request is recorded in api_audit, which
- * doubles as the per-token rate limit window.
+ * Auth is bearer-token, not session, compared in constant time. Two kinds
+ * of token live in the server .env:
+ *  - API_USER_TOKENS: one per person (email:token). Authenticates the
+ *    agent AS that user — read-write (writes still only queue proposals),
+ *    with audit rows and proposals attributed to them.
+ *  - API_TOKEN_READ / API_TOKEN_WRITE: the legacy shared, anonymous
+ *    tokens. Kept working for the transition; the write token grants read.
+ * Every request is recorded in api_audit, which doubles as the per-token
+ * rate limit window.
  */
 abstract class ApiController
 {
     private const RATE_LIMIT_PER_MINUTE = 120;
 
     protected ?string $tokenName = null;
+
+    /** The person behind a per-user token; null for the legacy shared ones. */
+    protected ?int $actorUserId = null;
+
+    protected bool $canWrite = false;
 
     public function __construct(
         protected readonly Config $config,
@@ -35,7 +51,11 @@ abstract class ApiController
      */
     protected function requireToken(string $scope = 'read'): void
     {
-        if ($this->config->apiTokenRead === '' && $this->config->apiTokenWrite === '') {
+        if (
+            $this->config->apiTokenRead === ''
+            && $this->config->apiTokenWrite === ''
+            && $this->config->apiUserTokens === []
+        ) {
             $this->emitError(503, 'not_configured', 'The API is not enabled on this server.');
         }
 
@@ -47,22 +67,46 @@ abstract class ApiController
 
         $name = null;
 
-        if ($this->config->apiTokenRead !== '' && hash_equals($this->config->apiTokenRead, $presented)) {
-            $name = 'read';
-        } elseif (
-            $this->config->apiTokenWrite !== ''
-            && hash_equals($this->config->apiTokenWrite, $presented)
-        ) {
-            $name = 'write';
+        foreach ($this->config->apiUserTokens as $email => $token) {
+            if (!hash_equals($token, $presented)) {
+                continue;
+            }
+
+            $user = (new UserModel($this->db))->findByEmail($email);
+
+            if ($user === null) {
+                $this->emitError(
+                    503,
+                    'misconfigured',
+                    'API_USER_TOKENS names a user this server does not know.',
+                );
+            }
+
+            $this->actorUserId = (int) $user['id'];
+            $this->canWrite = true;
+            $name = 'user:' . $this->actorUserId;
+            break;
+        }
+
+        if ($name === null) {
+            if ($this->config->apiTokenRead !== '' && hash_equals($this->config->apiTokenRead, $presented)) {
+                $name = 'read';
+            } elseif (
+                $this->config->apiTokenWrite !== ''
+                && hash_equals($this->config->apiTokenWrite, $presented)
+            ) {
+                $name = 'write';
+                $this->canWrite = true;
+            }
         }
 
         if ($name === null) {
             $this->emitError(401, 'invalid_token', 'That token is not recognized.');
         }
 
-        if ($scope === 'write' && $name !== 'write') {
+        if ($scope === 'write' && !$this->canWrite) {
             $this->tokenName = $name;
-            $this->emitError(403, 'read_only_token', 'This action requires the read-write token.');
+            $this->emitError(403, 'read_only_token', 'This action requires a write-capable token.');
         }
 
         $this->tokenName = $name;
@@ -127,6 +171,88 @@ abstract class ApiController
         return $this->bearerToken();
     }
 
+    /**
+     * Resolve an agent's optional owner filter ('me', 'shared', a user id,
+     * or a user email) to the ContactModel filter value ('', 'shared', or a
+     * numeric string). Omitted means everyone — the filter is a choice,
+     * never a forced default. Throws with an agent-presentable message on
+     * anything unresolvable.
+     */
+    protected function resolveOwnerFilter(string $raw): string
+    {
+        if (trim($raw) === '') {
+            return '';
+        }
+
+        $userId = (new OwnerResolver($this->db))->resolve($raw, $this->actorUserId);
+
+        return $userId === null ? 'shared' : (string) $userId;
+    }
+
+    /**
+     * The task list both transports serve (GET /api/v1/tasks and the MCP
+     * list_tasks tool), so REST and MCP cannot disagree on a filter.
+     * $args is the query string or the tool arguments. Like the contact
+     * reads, omitting owner searches the whole workspace.
+     *
+     * @param array<string, mixed> $args status, owner, contact_id,
+     *        organization_id, due_before, limit, cursor
+     * @return array{data: list<array<string, mixed>>, next_cursor: ?string}
+     * @throws InvalidArgumentException with an agent-presentable message
+     */
+    protected function taskList(array $args): array
+    {
+        $status = strtolower(trim((string) ($args['status'] ?? 'open')));
+
+        if (!in_array($status, ['open', 'done', 'all'], true)) {
+            throw new InvalidArgumentException("status must be 'open', 'done' or 'all'.");
+        }
+
+        $dueBefore = trim((string) ($args['due_before'] ?? ''));
+
+        if ($dueBefore !== '') {
+            $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $dueBefore);
+
+            if ($parsed === false || $parsed->format('Y-m-d') !== $dueBefore) {
+                throw new InvalidArgumentException('due_before must be YYYY-MM-DD.');
+            }
+        }
+
+        $limit = ApiFormat::clampLimit($args['limit'] ?? null);
+
+        $rows = (new TaskModel($this->db))->apiList(
+            status: $status,
+            owner: $this->resolveOwnerFilter((string) ($args['owner'] ?? '')),
+            contactId: ($args['contact_id'] ?? '') === '' ? null : (int) $args['contact_id'],
+            organizationId: ($args['organization_id'] ?? '') === '' ? null : (int) $args['organization_id'],
+            dueBefore: $dueBefore,
+            afterId: ApiFormat::decodeCursor(isset($args['cursor']) ? (string) $args['cursor'] : null),
+            limit: $limit,
+        );
+
+        return [
+            'data' => array_map(ApiSerializer::task(...), $rows),
+            'next_cursor' => count($rows) === $limit
+                ? ApiFormat::encodeCursor((int) end($rows)['id'])
+                : null,
+        ];
+    }
+
+    /**
+     * A contact's open tasks, serialized: both transports add this to the
+     * single-contact read so an agent asked "what do I owe this person?"
+     * needs one call.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function openTasksForContact(int $contactId): array
+    {
+        return array_map(
+            ApiSerializer::task(...),
+            (new TaskModel($this->db))->openForContact($contactId),
+        );
+    }
+
     protected function bearerToken(): string
     {
         // REDIRECT_ variant: Apache re-exports the stripped Authorization
@@ -162,11 +288,12 @@ abstract class ApiController
         $query = (string) preg_replace('/(^|&)token=[^&]*/', '$1token=[redacted]', $query);
 
         $stmt = $this->db->pdo()->prepare(
-            'INSERT INTO api_audit (token_name, method, path, query_string, response_code)
-             VALUES (:token_name, :method, :path, :query_string, :response_code)'
+            'INSERT INTO api_audit (token_name, user_id, method, path, query_string, response_code)
+             VALUES (:token_name, :user_id, :method, :path, :query_string, :response_code)'
         );
         $stmt->execute([
             'token_name' => $this->tokenName ?? 'anonymous',
+            'user_id' => $this->actorUserId,
             'method' => (string) ($_SERVER['REQUEST_METHOD'] ?? ''),
             'path' => substr($path, 0, 255),
             'query_string' => substr($query, 0, 1000) ?: null,
