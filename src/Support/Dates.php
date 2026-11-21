@@ -26,4 +26,17 @@ final class Dates
 
         return (int) $from->diff($to)->days;
     }
+
+    /**
+     * Whether $value is a real calendar date written exactly as YYYY-MM-DD.
+     * The round trip is what rejects "2026-02-30" (PHP would roll it over
+     * to March) and loose spellings like "2026-1-5". The one definition
+     * every form, command and API filter shares.
+     */
+    public static function isValidYmd(string $value): bool
+    {
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+
+        return $parsed !== false && $parsed->format('Y-m-d') === $value;
+    }
 }

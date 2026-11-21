@@ -103,8 +103,16 @@ final class CrmApiController extends ApiController
     {
         $this->requireToken('read');
 
+        // A bad owner is invalid_owner here exactly as on /contacts; every
+        // other bad filter is invalid_filter.
         try {
-            return $this->respond($this->taskList($_GET));
+            $owner = $this->resolveOwnerFilter((string) ($_GET['owner'] ?? ''));
+        } catch (\InvalidArgumentException $e) {
+            return $this->respondError(400, 'invalid_owner', $e->getMessage());
+        }
+
+        try {
+            return $this->respond($this->taskList($_GET, $owner));
         } catch (\InvalidArgumentException $e) {
             return $this->respondError(400, 'invalid_filter', $e->getMessage());
         }

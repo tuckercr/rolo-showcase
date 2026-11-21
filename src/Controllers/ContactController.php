@@ -17,6 +17,7 @@ use App\Services\AttachmentService;
 use App\Services\ReminderService;
 use App\Services\SlackCelebrationService;
 use App\Services\SnoozeService;
+use App\Support\Dates;
 use App\Support\SlackClient;
 use App\Support\TaskLabels;
 use App\Support\Url;
@@ -151,9 +152,7 @@ final class ContactController extends Controller
         $newDate = null;
 
         if ($raw !== '') {
-            $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $raw);
-
-            if ($parsed === false || $parsed->format('Y-m-d') !== $raw) {
+            if (!Dates::isValidYmd($raw)) {
                 return $this->redirect('/contacts/' . (int) $contact['id']);
             }
 

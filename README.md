@@ -44,7 +44,7 @@ notice gates itself, so a double-fired cron is always a no-op.
 
 **🧾 It's honest engineering.** Plain PHP 8.4 with strict types, MariaDB,
 server-rendered HTML. No build step, no SPA, nothing to babysit. Deploys
-are a file copy. 303 PHPUnit tests around the logic that actually breaks
+are a file copy. 353 PHPUnit tests around the logic that actually breaks
 (cadence math, the MCP protocol, the Slack flows, the dashboard SQL), PSR-12
 enforced in CI, and Lighthouse scores of 96-100 performance and 100
 accessibility across the main pages.
@@ -137,7 +137,10 @@ instructions: **reads are live, writes never land directly.**
   shows each change as a live before/after diff against current data, plus a
   consequence line ("reschedules the next follow-up to Oct 23") computed by
   the same rules engine that will apply it. Approvals are attributed to the
-  human; the proposing token stays on the audit trail.
+  human; the proposing token stays on the audit trail. When an agent has
+  queued a long list, one confirmed "Approve all" works down it oldest
+  first, leaves anything that arrived since the page loaded, and reports
+  the ones that could no longer be applied.
 - **Agents can't wreck the schedule.** Agent-logged activities don't count as
   a personal touch unless explicitly flagged, so bulk campaign logging can't
   clear the follow-up queue. A backdated touch approved out of order goes

@@ -141,6 +141,7 @@ return static function (RouteCollector $r): void {
 
     // Approval queue (session-gated web UI)
     $r->addRoute('GET', '/proposals', [ApprovalController::class, 'index']);
+    $r->addRoute('POST', '/proposals/approve-all', [ApprovalController::class, 'approveAll']);
     $r->addRoute('POST', '/proposals/{id:\d+}/approve', [ApprovalController::class, 'approve']);
     $r->addRoute('POST', '/proposals/{id:\d+}/reject', [ApprovalController::class, 'reject']);
 

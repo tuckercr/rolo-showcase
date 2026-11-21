@@ -42,4 +42,28 @@ final class ApiFormatTest extends TestCase
         $this->assertSame(100, ApiFormat::clampLimit('9999'));
         $this->assertSame(50, ApiFormat::clampLimit('50'));
     }
+
+    public function testOptionalIdIsNullWhenNotSent(): void
+    {
+        $this->assertNull(ApiFormat::optionalId(null, 'contact_id'));
+        $this->assertNull(ApiFormat::optionalId('', 'contact_id'));
+    }
+
+    public function testOptionalIdAcceptsWholeNumbersFromEitherTransport(): void
+    {
+        $this->assertSame(110, ApiFormat::optionalId('110', 'contact_id'), 'a query string');
+        $this->assertSame(110, ApiFormat::optionalId(110, 'contact_id'), 'a JSON tool argument');
+    }
+
+    public function testOptionalIdRejectsAnythingElseByName(): void
+    {
+        foreach (['abc', '12abc', '1.5', '-3', '0', 0, -3, 1.0, true, ['1'], ' 7', "7\n", '99999999999'] as $bad) {
+            try {
+                ApiFormat::optionalId($bad, 'organization_id');
+                $this->fail('expected a rejection for ' . var_export($bad, true));
+            } catch (\InvalidArgumentException $e) {
+                $this->assertSame('organization_id must be a whole-number id.', $e->getMessage());
+            }
+        }
+    }
 }

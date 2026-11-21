@@ -171,9 +171,14 @@ final class SlackController extends Controller
             return $this->ephemeral('Sorry, this Slack account is not connected to Rolo.');
         }
 
+        // Slack sends the text entity-encoded (&amp; for &) and with links
+        // and mentions in <...> markup; toPlain() gets back what was typed,
+        // so "Q&A" is saved and searched for as "Q&A". Every reply escapes
+        // again on the way out (Mrkdwn::esc).
+        //
         // Commands match case-insensitively, but a task's title is saved as
         // typed, so the original text is kept alongside the lowered one.
-        $rawText = trim((string) ($form['text'] ?? ''));
+        $rawText = trim(Mrkdwn::toPlain((string) ($form['text'] ?? '')));
         $text = strtolower($rawText);
 
         if ($text === 'task' || str_starts_with($text, 'task ')) {
@@ -209,7 +214,8 @@ final class SlackController extends Controller
                 . "• `/rolo snooze <name> [days]`: push the follow-up out (3 days if you leave days off)\n"
                 . "• `/rolo who <name>`: a quick contact card before you pick up the phone\n"
                 . "• `/rolo task <what> [when]`: add a task for yourself. When can be today, tomorrow, "
-                . "a weekday, next week, in 3 days, or a date like 2026-12-01. "
+                . "a weekday, next week, in 3 days, or a date like 2026-12-01, "
+                . "with by, on or due in front if you like. "
                 . "Start with `for <name>:` to attach it to a contact\n"
                 . "• `/rolo tasks`: your open tasks (yours, plus shared), each with a Done button\n"
                 . "• `/rolo today`: your follow-ups due today (contacts you own, plus shared)\n"
@@ -241,6 +247,8 @@ final class SlackController extends Controller
                 "Usage: `/rolo task <what> [when]`, for example `/rolo task Send the Q1 proposal friday`.\n"
                 . "When can be today, tomorrow, a weekday, next week, in 3 days, or a date like 2026-12-01. "
                 . "Leave it off for no due date.\n"
+                . "You can put by, on or due in front of it. The short days mon, wed, sat and sun "
+                . "need one, as in `by sat`, because they are also ordinary words.\n"
                 . "Attach it to a contact with `/rolo task for <name>: <what> [when]`.\n"
                 . 'Put the task in "quotes" if it ends in a word like friday that is not the due date.'
             );
@@ -249,20 +257,13 @@ final class SlackController extends Controller
         $contactId = null;
 
         if ($parsed['contact_query'] !== null) {
-            $matches = (new ContactModel($this->db))->search(query: $parsed['contact_query']);
+            $contact = $this->findOneContact($parsed['contact_query'], ', so nothing was added');
 
-            if ($matches === []) {
-                return $this->ephemeral(sprintf(
-                    'No contact matches "%s", so nothing was added.',
-                    Mrkdwn::esc($parsed['contact_query']),
-                ));
+            if (is_string($contact)) {
+                return $contact;
             }
 
-            if (count($matches) > 1) {
-                return $this->matchList($parsed['contact_query'], $matches);
-            }
-
-            $contactId = (int) $matches[0]['id'];
+            $contactId = (int) $contact['id'];
         }
 
         $service = new TaskService($this->config, $this->db);
@@ -327,18 +328,14 @@ final class SlackController extends Controller
             return $this->ephemeral('Usage: `/rolo log <name or organization>`');
         }
 
-        $matches = (new ContactModel($this->db))->search(query: $query);
+        $contact = $this->findOneContact($query);
 
-        if ($matches === []) {
-            return $this->ephemeral(sprintf('No contact matches "%s".', Mrkdwn::esc($query)));
-        }
-
-        if (count($matches) > 1) {
-            return $this->matchList($query, $matches);
+        if (is_string($contact)) {
+            return $contact;
         }
 
         $error = $this->openLogModal(
-            (int) $matches[0]['id'],
+            (int) $contact['id'],
             (string) ($form['trigger_id'] ?? ''),
             (string) ($form['response_url'] ?? ''),
             via: 'cmd',
@@ -359,7 +356,7 @@ final class SlackController extends Controller
 
         if ($args === null) {
             return $this->ephemeral(
-                'Usage: `/rolo snooze <name> [days]` — days defaults to 3. '
+                'Usage: `/rolo snooze <name> [days]`. Days defaults to 3. '
                 . 'Quote a name that ends in a number: `/rolo snooze "studio 54" 7`.'
             );
         }
@@ -370,17 +367,13 @@ final class SlackController extends Controller
             return $this->ephemeral('Days must be between 1 and 365.');
         }
 
-        $matches = (new ContactModel($this->db))->search(query: $query);
+        $contact = $this->findOneContact($query);
 
-        if ($matches === []) {
-            return $this->ephemeral(sprintf('No contact matches "%s".', Mrkdwn::esc($query)));
+        if (is_string($contact)) {
+            return $contact;
         }
 
-        if (count($matches) > 1) {
-            return $this->matchList($query, $matches);
-        }
-
-        [$outcome, $undo] = $this->snooze((int) $matches[0]['id'], $actorId, $days, via: 'via /rolo snooze');
+        [$outcome, $undo] = $this->snooze((int) $contact['id'], $actorId, $days, via: 'via /rolo snooze');
 
         $blocks = [['type' => 'section', 'text' => ['type' => 'mrkdwn', 'text' => $outcome]]];
 
@@ -431,21 +424,42 @@ final class SlackController extends Controller
             return $this->ephemeral('Usage: `/rolo who <name or organization>`');
         }
 
+        $contact = $this->findOneContact($query);
+
+        if (is_string($contact)) {
+            return $contact;
+        }
+
+        return (string) json_encode([
+            'response_type' => 'ephemeral',
+            'text' => (string) $contact['name'],
+            'blocks' => $this->contactCard($contact),
+        ]);
+    }
+
+    /**
+     * The one contact a typed name means. Every command that takes a name
+     * acts only on an exact single match; for none or several it answers
+     * instead of guessing, and the caller returns that answer as is.
+     *
+     * @param string $noneNote appended to the "no match" line, for commands
+     *        that should say what did not happen
+     * @return array<string, mixed>|string the contact row, or the ephemeral
+     *         reply to send in its place
+     */
+    private function findOneContact(string $query, string $noneNote = ''): array|string
+    {
         $matches = (new ContactModel($this->db))->search(query: $query);
 
         if ($matches === []) {
-            return $this->ephemeral(sprintf('No contact matches "%s".', Mrkdwn::esc($query)));
+            return $this->ephemeral(sprintf('No contact matches "%s"%s.', Mrkdwn::esc($query), $noneNote));
         }
 
         if (count($matches) > 1) {
             return $this->matchList($query, $matches);
         }
 
-        return (string) json_encode([
-            'response_type' => 'ephemeral',
-            'text' => (string) $matches[0]['name'],
-            'blocks' => $this->contactCard($matches[0]),
-        ]);
+        return $matches[0];
     }
 
     /**
@@ -821,7 +835,7 @@ final class SlackController extends Controller
 
         if ((new CalendarConnectionModel($this->db))->findForUser($actorId) === null) {
             return $this->ephemeral(
-                'Your Google Calendar is not connected yet — connect it from Settings in '
+                'Your Google Calendar is not connected yet. Connect it from Settings in '
                 . $this->appLink() . ' and meetings with people in Rolo will show up here.'
             );
         }
@@ -833,7 +847,7 @@ final class SlackController extends Controller
             $suggestions = (new CalendarSuggestionService($this->config, $this->db))
                 ->suggestionsFor($actorId, $day, skipAlreadyLogged: $offset <= 0);
         } catch (\Throwable) {
-            return $this->ephemeral('Could not read your calendar just now — try again in a minute.');
+            return $this->ephemeral('Could not read your calendar just now. Try again in a minute.');
         }
 
         if ($suggestions === []) {
@@ -866,7 +880,7 @@ final class SlackController extends Controller
             return $this->ephemeral('Could not send the debrief: ' . $e->getMessage());
         }
 
-        return $this->ephemeral('On it — check your DMs.');
+        return $this->ephemeral('On it. Check your DMs.');
     }
 
     private function ephemeral(string $text): string
@@ -1676,26 +1690,21 @@ final class SlackController extends Controller
                 : 'Nothing done: this proposal was already decided.';
         }
 
-        // Win the pending -> approved compare-and-set BEFORE applying: the
-        // DM goes to everyone, and two near-simultaneous Approve taps must
-        // not both run apply() (duplicate activity rows, double stage
-        // changes). The loser of the race changes nothing.
-        if (!$proposals->decide($proposalId, 'approved', $actorId)) {
-            return 'Nothing done: this proposal was already decided.';
-        }
+        // ProposalService::approve wins the pending -> approved
+        // compare-and-set BEFORE applying: the DM goes to everyone, and two
+        // near-simultaneous Approve taps must not both run apply()
+        // (duplicate activity rows, double stage changes). The loser of the
+        // race changes nothing.
+        $result = (new ProposalService($this->config, $this->db))->approve($proposalId, $actorId);
 
-        try {
-            (new ProposalService($this->config, $this->db))->apply($proposal, $actorId);
-        } catch (\Throwable $e) {
-            $proposals->decide($proposalId, 'rejected', $actorId, $e->getMessage(), fromStatus: 'approved');
-
-            return sprintf(
-                ':warning: Could not apply (%s) — rejected with the error recorded.',
-                Mrkdwn::esc($e->getMessage()),
-            );
-        }
-
-        return sprintf(':white_check_mark: Approved by %s.', $actorName);
+        return match ($result['outcome']) {
+            'approved' => sprintf(':white_check_mark: Approved by %s.', $actorName),
+            'failed' => sprintf(
+                ':warning: Could not apply (%s). Rejected, with the error recorded.',
+                Mrkdwn::esc((string) $result['error']),
+            ),
+            default => 'Nothing done: this proposal was already decided.',
+        };
     }
 
     /**

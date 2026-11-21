@@ -149,10 +149,10 @@ $sortHeader = static function (
                             <?= View::e((string) $contact['relationship_status']) ?>
                         </td>
                         <td class="px-4 py-2 text-brand-inksoft">
-                            <?= View::e((string) ($contact['last_touch_date'] ?? '—')) ?>
+                            <?= View::e((string) ($contact['last_touch_date'] ?? 'Never')) ?>
                         </td>
                         <td class="px-4 py-2 <?= $isOverdue ? 'text-brand-red font-medium' : 'text-brand-inksoft' ?>">
-                            <?= View::e($next === '' ? '—' : $next) ?>
+                            <?= View::e($next === '' ? 'No reminder' : $next) ?>
                         </td>
                         <td class="px-4 py-2 text-brand-muted">
                             <?= $contact['owner_id'] === null

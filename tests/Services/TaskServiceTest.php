@@ -98,6 +98,60 @@ final class TaskServiceTest extends DatabaseTestCase
         self::assertArrayHasKey('owner_id', $errors, 'words are resolved before validation, not here');
     }
 
+    public function testATaskWhoseOwnerLostTheirSignInCanStillBeEdited(): void
+    {
+        // User 1 owned the task while everyone could sign in, then came
+        // off the allowlist.
+        [$clean] = $this->service()->validate(['title' => 'Send the deck', 'owner_id' => 1]);
+        $task = (new TaskModel(self::db()))->find($this->service()->create($clean, 1));
+        $service = $this->service(['dana@example.com']);
+
+        // An edit that never mentions the owner (an agent's update_task).
+        [$clean, $errors] = $service->validate(['due_date' => '2026-12-01'], $task);
+        self::assertSame([], $errors);
+        self::assertSame(1, $clean['owner_id'], 'the owner is kept');
+
+        // The edit form posts the owner back unchanged.
+        [$clean, $errors] = $service->validate(['title' => 'Send the long deck', 'owner_id' => '1'], $task);
+        self::assertSame([], $errors);
+        self::assertSame(1, $clean['owner_id']);
+
+        // Moving it to someone valid, or to shared, works as ever.
+        [, $errors] = $service->validate(['owner_id' => '2'], $task);
+        self::assertSame([], $errors);
+        [, $errors] = $service->validate(['owner_id' => ''], $task);
+        self::assertSame([], $errors);
+
+        // But the retired owner cannot be picked for a task that is not theirs.
+        $other = (new TaskModel(self::db()))->find(
+            $service->create($service->validate(['title' => 'Other', 'owner_id' => 2])[0], 2),
+        );
+        [, $errors] = $service->validate(['owner_id' => 1], $other);
+        self::assertSame('Pick a valid owner.', $errors['owner_id']);
+    }
+
+    public function testOwnerOptionsKeepACurrentOwnerWhoCanNoLongerSignIn(): void
+    {
+        [$clean] = $this->service()->validate(['title' => 'Send the deck', 'owner_id' => 1]);
+        $tasks = new TaskModel(self::db());
+        $task = $tasks->find($this->service()->create($clean, 1));
+        $service = $this->service(['dana@example.com']);
+
+        $options = $service->ownerOptions($task);
+
+        self::assertSame([2, 1], array_map(intval(...), array_column($options, 'id')));
+        self::assertSame([false, true], array_column($options, 'retired'));
+        self::assertSame($task['owner_name'], $options[1]['name']);
+
+        // Nobody is added for a shared task, or for an owner already listed.
+        $shared = $tasks->find($service->create($service->validate(['title' => 'Shared'])[0], 2));
+        self::assertSame([2], array_map(intval(...), array_column($service->ownerOptions($shared), 'id')));
+
+        $all = $this->service()->ownerOptions($task);
+        self::assertCount(2, $all);
+        self::assertSame([false, false], array_column($all, 'retired'));
+    }
+
     public function testLinksMustExistAndTrashedContactsDoNotCount(): void
     {
         $steve = $this->insertContact('Steve');

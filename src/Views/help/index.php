@@ -88,6 +88,14 @@ include __DIR__ . '/../layout/header.php';
             does to the follow-up schedule, so the worst case is a proposal you
             reject with one click.
         </p>
+        <p class="mt-3 text-sm text-brand-muted leading-relaxed">
+            When an assistant has queued a lot at once (tagging a whole list, say),
+            <strong>Approve all</strong> at the top of the Approvals page works down the
+            queue from the oldest to the newest after one confirmation. Reject anything
+            you do not want first. A change that can no longer be applied, for example
+            because its contact was deleted, is marked rejected with the reason and the
+            rest carry on.
+        </p>
     </section>
 
     <section>

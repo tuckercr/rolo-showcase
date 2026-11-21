@@ -27,6 +27,10 @@ final class TaskControllerTest extends TestCase
             'query strings are not carried' => ['/tasks?status=done', '/tasks'],
             'trailing junk' => ['/contacts/110/edit', '/tasks'],
             'not a string' => [['/'], '/tasks'],
+            // PHP will not send a Location header containing a newline.
+            'a trailing newline' => ["/contacts/110\n", '/tasks'],
+            'a trailing newline on the default' => ["/tasks\n", '/tasks'],
+            'a newline mid-path' => ["/contacts/110\nX-Injected: 1", '/tasks'],
         ];
     }
 
@@ -34,6 +38,13 @@ final class TaskControllerTest extends TestCase
     public function testReturnToOnlyAcceptsPagesThatHostTaskControls(mixed $raw, string $expected): void
     {
         self::assertSame($expected, TaskController::returnTo($raw));
+    }
+
+    public function testReturnToNeverCarriesANewlineEvenWithAnotherDefault(): void
+    {
+        // With "/" as the fallback, "/tasks\n" slipping through would be
+        // visible as a different result, not hidden by the default.
+        self::assertSame('/', TaskController::returnTo("/tasks\n", '/'));
     }
 
     public function testOpenTasksGroupIntoSectionsAndEmptyOnesDisappear(): void

@@ -15,6 +15,7 @@ use App\Models\TaskModel;
 use App\Models\UserModel;
 use App\Support\Config;
 use App\Support\Database;
+use App\Support\Dates;
 use App\Support\SlackClient;
 use App\Support\TaskLabels;
 use App\Support\Url;
@@ -155,6 +156,128 @@ final class ProposalService
         };
     }
 
+    /**
+     * Approve one proposal: the whole decide-then-apply sequence, shared by
+     * the Approvals page, the bulk "Approve all" and the Slack button.
+     *
+     * The pending -> approved compare-and-set is won BEFORE applying, so a
+     * double submit, two browser tabs or a race with the Slack button can
+     * never run apply() twice. When applying fails (the contact was trashed
+     * while the proposal waited, say) the proposal is walked back to
+     * rejected with the reason recorded.
+     *
+     * @return array{outcome: 'approved'|'failed'|'already_decided', error: ?string}
+     */
+    public function approve(int $proposalId, int $reviewerId): array
+    {
+        $proposals = new ProposalModel($this->db);
+        $proposal = $proposals->find($proposalId);
+
+        if (
+            $proposal === null
+            || (string) $proposal['status'] !== 'pending'
+            || !$proposals->decide($proposalId, 'approved', $reviewerId)
+        ) {
+            return ['outcome' => 'already_decided', 'error' => null];
+        }
+
+        try {
+            $this->apply($proposal, $reviewerId);
+        } catch (\Throwable $e) {
+            $proposals->decide($proposalId, 'rejected', $reviewerId, $e->getMessage(), fromStatus: 'approved');
+
+            return ['outcome' => 'failed', 'error' => $e->getMessage()];
+        }
+
+        return ['outcome' => 'approved', 'error' => null];
+    }
+
+    /**
+     * Approve everything pending, OLDEST FIRST: proposals are applied in
+     * the order they were made, so when two touch the same field the later
+     * one wins, exactly as if a person had worked down the list.
+     *
+     * $throughId is the newest proposal the reviewer was actually shown.
+     * Anything queued after the page was rendered is left pending: nobody
+     * has seen it, so nobody has approved it.
+     *
+     * Each proposal stands alone. One that cannot be applied is marked
+     * rejected with its reason and the rest carry on; one decided by
+     * someone else in the meantime is skipped.
+     *
+     * @return array{
+     *     approved: int,
+     *     skipped: int,
+     *     failed: list<array{id: int, summary: string, error: string}>
+     * }
+     */
+    public function approveAllPending(int $reviewerId, int $throughId): array
+    {
+        $result = ['approved' => 0, 'skipped' => 0, 'failed' => []];
+
+        // pending() is ordered by id, which is creation order.
+        foreach ((new ProposalModel($this->db))->pending() as $proposal) {
+            $id = (int) $proposal['id'];
+
+            if ($id > $throughId) {
+                continue;
+            }
+
+            $outcome = $this->approve($id, $reviewerId);
+
+            if ($outcome['outcome'] === 'approved') {
+                $result['approved']++;
+            } elseif ($outcome['outcome'] === 'failed') {
+                $result['failed'][] = [
+                    'id' => $id,
+                    'summary' => (string) $proposal['summary'],
+                    'error' => (string) $outcome['error'],
+                ];
+            } else {
+                $result['skipped']++;
+            }
+        }
+
+        return $result;
+    }
+
+    /** What each action is called when counted: [one, several]. */
+    private const ACTION_NOUNS = [
+        'create_contact' => ['new contact', 'new contacts'],
+        'update_contact' => ['contact update', 'contact updates'],
+        'change_tags' => ['tag change', 'tag changes'],
+        'log_activity' => ['logged interaction', 'logged interactions'],
+        'create_organization' => ['new organization', 'new organizations'],
+        'create_task' => ['new task', 'new tasks'],
+        'update_task' => ['task update', 'task updates'],
+        'complete_task' => ['task completion', 'task completions'],
+    ];
+
+    /**
+     * "82 tag changes, 2 contact updates, 1 new task": what a set of
+     * proposals contains, most numerous first. Shown before a bulk approval
+     * so the reviewer knows what they are about to say yes to.
+     *
+     * @param list<array<string, mixed>> $proposals api_proposals rows
+     */
+    public static function breakdown(array $proposals): string
+    {
+        $counts = array_count_values(array_map(
+            static fn(array $p): string => (string) $p['action'],
+            $proposals,
+        ));
+        arsort($counts);
+
+        $parts = [];
+
+        foreach ($counts as $action => $count) {
+            [$one, $several] = self::ACTION_NOUNS[$action] ?? ['other change', 'other changes'];
+            $parts[] = sprintf('%d %s', $count, $count === 1 ? $one : $several);
+        }
+
+        return implode(', ', $parts);
+    }
+
     // ---- tasks -------------------------------------------------------------
     //
     // Task rules live in TaskService; this section only adapts them to the
@@ -227,16 +350,42 @@ final class ProposalService
         // field someone edited in the meantime is not silently reverted.
         $clean = $this->validTask($changes, $task);
         $stored = array_intersect_key($clean, $changes);
+        $replaced = self::replacedTaskLink($changes, $task, $clean);
 
         return [
             ['task_id' => (int) $task['id']] + $stored,
             sprintf(
-                'Update task "%s": %s',
+                'Update task "%s": %s%s',
                 (string) $task['title'],
                 // The agent-facing name of the field, not the column.
                 implode(', ', str_replace('owner_id', 'owner', array_keys($stored))),
+                $replaced === null
+                    ? ''
+                    : sprintf(' (replaces its %s link)', str_replace('_id', '', $replaced)),
             ),
         ];
+    }
+
+    /**
+     * A task links to one record, so setting a contact on a task about an
+     * organization (or the reverse) also clears the other link, without the
+     * agent having asked for that in so many words. Returns the field that
+     * will be cleared that way, so the summary and the review card can show
+     * it; null when nothing is.
+     *
+     * @param array<string, mixed> $changes the fields the agent sent
+     * @param array<string, mixed> $task the task as it is now
+     * @param array<string, mixed> $clean TaskService::validate() of the two
+     */
+    private static function replacedTaskLink(array $changes, array $task, array $clean): ?string
+    {
+        foreach (['contact_id', 'organization_id'] as $link) {
+            if (!array_key_exists($link, $changes) && ($task[$link] ?? null) !== null && $clean[$link] === null) {
+                return $link;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -263,7 +412,13 @@ final class ProposalService
     private function validateCompleteTask(array $payload): array
     {
         $task = $this->requireTask($payload);
-        $completed = (bool) ($payload['completed'] ?? true);
+        $completed = $payload['completed'] ?? true;
+
+        // No casting: (bool) "false" is true, which would queue a reopen
+        // request as a completion.
+        if (!is_bool($completed)) {
+            throw new InvalidArgumentException('completed must be true or false (a JSON boolean, not a string).');
+        }
 
         return [
             ['task_id' => (int) $task['id'], 'completed' => $completed],
@@ -484,11 +639,36 @@ final class ProposalService
             $rows[] = ['label' => $label, 'before' => $before, 'after' => $after, 'changed' => $before !== $after];
         }
 
+        // What approving will really do, worked out against the task as it
+        // is now: the same merge applyUpdateTask() runs. The link it clears
+        // as a side effect gets its own row, or the card would understate
+        // the change. Validation problems are approval's to report.
+        $changes = array_intersect_key($payload, array_flip(TaskService::FIELDS));
+        [$clean] = (new TaskService($this->config, $this->db))->validate($changes, $task);
+        $replaced = self::replacedTaskLink($changes, $task, $clean);
+        $consequence = null;
+
+        if ($replaced !== null) {
+            $was = $this->formatTaskValue($replaced, $task[$replaced]);
+            $rows[] = [
+                'label' => self::TASK_FIELD_LABELS[$replaced],
+                'before' => $was,
+                'after' => $this->formatTaskValue($replaced, null),
+                'changed' => true,
+            ];
+            $consequence = sprintf(
+                'A task is about one record, so this also removes its link to %s.',
+                $was,
+            );
+        }
+
         return [
             'kind' => 'update_task',
             'title' => 'Update task: ' . (string) $task['title'],
             'contact' => null,
             'rows' => $rows,
+            'consequence' => $consequence,
+            'consequence_level' => 'info',
         ];
     }
 
@@ -762,6 +942,14 @@ final class ProposalService
         $tags = new TagModel($this->db);
         $contactId = (int) $payload['contact_id'];
 
+        // Same rule as every other action aimed at a contact, and what the
+        // review card has always promised ("approving will fail"): a
+        // contact trashed while the proposal waited is not quietly tagged
+        // in the trash.
+        if ((new ContactModel($this->db))->find($contactId) === null) {
+            throw new RuntimeException('Contact no longer exists (trashed?).');
+        }
+
         $tags->addForContact($contactId, $payload['add'] ?? []);
         $tags->removeForContact($contactId, $payload['remove'] ?? []);
     }
@@ -786,7 +974,7 @@ final class ProposalService
 
         $date = trim((string) ($payload['date'] ?? ''));
 
-        if (!$this->isValidDate($date)) {
+        if (!Dates::isValidYmd($date)) {
             throw new InvalidArgumentException('date must be YYYY-MM-DD.');
         }
 
@@ -800,7 +988,7 @@ final class ProposalService
 
         $followUpDate = trim((string) ($payload['follow_up_date'] ?? ''));
 
-        if ($followUpDate !== '' && !$this->isValidDate($followUpDate)) {
+        if ($followUpDate !== '' && !Dates::isValidYmd($followUpDate)) {
             throw new InvalidArgumentException('follow_up_date must be YYYY-MM-DD.');
         }
 
@@ -1479,12 +1667,5 @@ final class ProposalService
         }
 
         return array_values($clean);
-    }
-
-    private function isValidDate(string $value): bool
-    {
-        $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $value);
-
-        return $parsed !== false && $parsed->format('Y-m-d') === $value;
     }
 }

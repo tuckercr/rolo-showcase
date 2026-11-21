@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Tests\Controllers;
 
 use App\Controllers\SlackController;
+use App\Models\ProposalModel;
 use App\Models\TaskModel;
 use App\Models\UserModel;
+use App\Services\ProposalService;
 use App\Support\Auth;
 use App\Support\Config;
 use DateTimeImmutable;
@@ -55,6 +57,42 @@ final class SlackTaskFlowTest extends DatabaseTestCase
         self::assertStringContainsString('Added to your tasks', $json);
         self::assertStringContainsString('due tomorrow', $json, 'the reply shows the date it understood');
         self::assertStringContainsString('"a":"task_done"', $json);
+    }
+
+    public function testSlackEscapingIsUndoneBeforeTheTaskIsSaved(): void
+    {
+        // What Slack sends when someone types:
+        //   task Send Q&A doc to <the board> via example.com by friday
+        $reply = $this->command(
+            'U_DANA',
+            'task Send Q&amp;A doc to &lt;the board&gt; via <http://example.com|example.com> by friday',
+        );
+
+        $tasks = (new TaskModel(self::db()))->open();
+        self::assertCount(1, $tasks);
+        self::assertSame('Send Q&A doc to <the board> via example.com', $tasks[0]['title']);
+        self::assertNotNull($tasks[0]['due_date'], 'the date is still read off the end');
+
+        // Going back out to Slack it is escaped exactly once.
+        self::assertSame(
+            'Added to your tasks: Send Q&amp;A doc to &lt;the board&gt; via example.com',
+            $reply['text'],
+        );
+        self::assertStringNotContainsString('&amp;amp;', (string) json_encode($reply['blocks']));
+    }
+
+    public function testAnAmpersandInAContactNameStillFindsTheContact(): void
+    {
+        $contact = $this->insertContact('Marsh & Vale Imports');
+
+        $this->command('U_DANA', 'task for marsh &amp; vale: Send the deck');
+
+        $tasks = (new TaskModel(self::db()))->open();
+        self::assertCount(1, $tasks);
+        self::assertSame($contact, (int) $tasks[0]['contact_id']);
+
+        $card = $this->command('U_DANA', 'who marsh &amp; vale');
+        self::assertSame('Marsh & Vale Imports', $card['text']);
     }
 
     public function testForNameLinksExactlyOneContactOrAddsNothing(): void
@@ -119,6 +157,25 @@ final class SlackTaskFlowTest extends DatabaseTestCase
 
         $this->tap('U_DANA', ['a' => 'task_reopen', 't' => $id]);
         self::assertNull((new TaskModel(self::db()))->find($id)['completed_at']);
+    }
+
+    public function testApproveButtonAppliesAProposalExactlyOnce(): void
+    {
+        $service = new ProposalService($this->config(), self::db());
+        [$proposal] = $service->queue('user:1', 'create_task', ['title' => 'From an agent'], null, 1);
+        $id = (int) $proposal['id'];
+
+        self::assertSame(['ok' => true], $this->tap('U_DANA', ['a' => 'approve', 'p' => $id]));
+        // The same DM goes to both people; the second tap must change nothing.
+        $this->tap('U_COLIN', ['a' => 'approve', 'p' => $id]);
+
+        $tasks = (new TaskModel(self::db()))->open();
+        self::assertCount(1, $tasks);
+        self::assertSame(2, (int) $tasks[0]['created_by'], 'created by the first approver');
+
+        $row = (new ProposalModel(self::db()))->find($id);
+        self::assertSame('approved', $row['status']);
+        self::assertSame(2, (int) $row['reviewed_by']);
     }
 
     public function testAnUnmappedSlackAccountCannotWriteTasks(): void

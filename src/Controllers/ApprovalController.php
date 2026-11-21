@@ -7,7 +7,6 @@ namespace App\Controllers;
 use App\Models\ProposalModel;
 use App\Services\ProposalService;
 use App\Support\View;
-use Throwable;
 
 /**
  * Human review of agent proposals: approving applies the change (attributed
@@ -16,6 +15,8 @@ use Throwable;
  */
 final class ApprovalController extends Controller
 {
+    private const BULK_RESULT_KEY = 'approve_all_result';
+
     public function index(): string
     {
         $proposals = new ProposalModel($this->db);
@@ -46,8 +47,14 @@ final class ApprovalController extends Controller
             $cards[$i]['view']['also_pending'] = $contactId !== null && $contactCounts[$contactId] > 1;
         }
 
+        $bulkResult = $_SESSION[self::BULK_RESULT_KEY] ?? null;
+        unset($_SESSION[self::BULK_RESULT_KEY]);
+
         return $this->render('approvals/index', [
             'pageTitle' => 'Approvals',
+            'bulkResult' => is_array($bulkResult) ? $bulkResult : null,
+            'pendingBreakdown' => ProposalService::breakdown($pending),
+            'pendingThroughId' => $pending === [] ? 0 : (int) end($pending)['id'],
             'pending' => $cards,
             'decided' => $proposals->recentlyDecided(),
             'applyError' => trim((string) ($_GET['apply_error'] ?? '')) ?: null,
@@ -61,32 +68,39 @@ final class ApprovalController extends Controller
     {
         $this->requireValidCsrf();
 
-        $proposals = new ProposalModel($this->db);
-        $proposal = $proposals->find((int) $vars['id']);
+        $result = (new ProposalService($this->config, $this->db))
+            ->approve((int) $vars['id'], $this->auth->id());
 
-        if ($proposal === null || (string) $proposal['status'] !== 'pending') {
-            return $this->redirect('/proposals');
+        if ($result['outcome'] === 'failed') {
+            return $this->redirect('/proposals?apply_error=' . rawurlencode((string) $result['error']));
         }
 
-        // Win the pending -> approved compare-and-set BEFORE applying, so a
-        // double-submit (or a race with the Slack Approve button) can't run
-        // apply() twice and write duplicate rows.
-        if (!$proposals->decide((int) $proposal['id'], 'approved', $this->auth->id())) {
-            return $this->redirect('/proposals');
-        }
+        return $this->redirect('/proposals');
+    }
 
-        try {
-            (new ProposalService($this->config, $this->db))->apply($proposal, $this->auth->id());
-        } catch (Throwable $e) {
-            $proposals->decide(
-                (int) $proposal['id'],
-                'rejected',
-                $this->auth->id(),
-                $e->getMessage(),
-                fromStatus: 'approved',
-            );
+    /**
+     * Approve everything that was on the page when the button was pressed,
+     * oldest first. through_id is the newest proposal that page showed, so
+     * one that arrived since is not approved unseen. The outcome rides the
+     * session to the next page load, once: a list of failures does not fit
+     * in a query string.
+     */
+    public function approveAll(): string
+    {
+        $this->requireValidCsrf();
 
-            return $this->redirect('/proposals?apply_error=' . rawurlencode($e->getMessage()));
+        $throughId = (int) ($_POST['through_id'] ?? 0);
+
+        if ($throughId > 0) {
+            // A long queue is many small writes; give it room rather than
+            // stopping half way. Stopping would still be safe (each proposal
+            // is decided on its own), just incomplete.
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(120);
+            }
+
+            $_SESSION[self::BULK_RESULT_KEY] = (new ProposalService($this->config, $this->db))
+                ->approveAllPending($this->auth->id(), $throughId);
         }
 
         return $this->redirect('/proposals');

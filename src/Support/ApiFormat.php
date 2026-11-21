@@ -58,6 +58,33 @@ final class ApiFormat
     }
 
     /**
+     * An optional id filter (contact_id, organization_id): null when it
+     * was not sent, the id when it is a whole number, and an error
+     * otherwise. Casting instead would turn "abc" into 0 and answer a
+     * mistyped filter with an empty, successful-looking list.
+     *
+     * @throws \InvalidArgumentException with an agent-presentable message
+     */
+    public static function optionalId(mixed $raw, string $name): ?int
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        if (is_int($raw) && $raw > 0) {
+            return $raw;
+        }
+
+        // Ten digits at most: anything longer cannot be an id, and would
+        // overflow into a float on the way to the query.
+        if (is_string($raw) && preg_match('/^[0-9]{1,10}\z/', $raw) === 1 && (int) $raw > 0) {
+            return (int) $raw;
+        }
+
+        throw new \InvalidArgumentException($name . ' must be a whole-number id.');
+    }
+
+    /**
      * Clamp a requested page size to 1..100 (default 25).
      */
     public static function clampLimit(mixed $raw): int

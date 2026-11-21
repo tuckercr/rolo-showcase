@@ -11,7 +11,8 @@ use App\Support\View;
  * @var array<string, mixed> $old the rejected POST when re-rendering
  * @var list<array<string, mixed>> $contactOptions
  * @var list<array<string, mixed>> $organizations
- * @var list<array<string, mixed>> $owners
+ * @var list<array<string, mixed>> $owners TaskService::ownerOptions(): `retired` marks a
+ *      current owner who can no longer sign in, kept so saving does not reassign the task
  * @var string $returnTo
  */
 
@@ -73,7 +74,8 @@ $errorLine = static fn(string $field): string => isset($errors[$field])
                 <?php foreach ($owners as $owner) : ?>
                     <option value="<?= (int) $owner['id'] ?>"
                         <?= $value('owner_id') === (string) $owner['id'] ? 'selected' : '' ?>>
-                        <?= View::e((string) $owner['name']) ?>
+                        <?= View::e((string) $owner['name']) ?><?=
+                            ($owner['retired'] ?? false) ? ' (no longer signs in)' : '' ?>
                     </option>
                 <?php endforeach ?>
             </select>

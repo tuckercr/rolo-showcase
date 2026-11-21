@@ -12,6 +12,7 @@ use App\Support\ApiSerializer;
 use App\Support\Auth;
 use App\Support\Config;
 use App\Support\Database;
+use App\Support\Dates;
 use InvalidArgumentException;
 
 /**
@@ -197,10 +198,13 @@ abstract class ApiController
      *
      * @param array<string, mixed> $args status, owner, contact_id,
      *        organization_id, due_before, limit, cursor
+     * @param string|null $owner the owner filter when the caller has
+     *        already resolved it (resolveOwnerFilter), so REST can report a
+     *        bad owner under its own error code; null resolves $args here
      * @return array{data: list<array<string, mixed>>, next_cursor: ?string}
      * @throws InvalidArgumentException with an agent-presentable message
      */
-    protected function taskList(array $args): array
+    protected function taskList(array $args, ?string $owner = null): array
     {
         $status = strtolower(trim((string) ($args['status'] ?? 'open')));
 
@@ -210,21 +214,19 @@ abstract class ApiController
 
         $dueBefore = trim((string) ($args['due_before'] ?? ''));
 
-        if ($dueBefore !== '') {
-            $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $dueBefore);
-
-            if ($parsed === false || $parsed->format('Y-m-d') !== $dueBefore) {
-                throw new InvalidArgumentException('due_before must be YYYY-MM-DD.');
-            }
+        if ($dueBefore !== '' && !Dates::isValidYmd($dueBefore)) {
+            throw new InvalidArgumentException('due_before must be YYYY-MM-DD.');
         }
 
+        $contactId = ApiFormat::optionalId($args['contact_id'] ?? null, 'contact_id');
+        $organizationId = ApiFormat::optionalId($args['organization_id'] ?? null, 'organization_id');
         $limit = ApiFormat::clampLimit($args['limit'] ?? null);
 
         $rows = (new TaskModel($this->db))->apiList(
             status: $status,
-            owner: $this->resolveOwnerFilter((string) ($args['owner'] ?? '')),
-            contactId: ($args['contact_id'] ?? '') === '' ? null : (int) $args['contact_id'],
-            organizationId: ($args['organization_id'] ?? '') === '' ? null : (int) $args['organization_id'],
+            owner: $owner ?? $this->resolveOwnerFilter((string) ($args['owner'] ?? '')),
+            contactId: $contactId,
+            organizationId: $organizationId,
             dueBefore: $dueBefore,
             afterId: ApiFormat::decodeCursor(isset($args['cursor']) ? (string) $args['cursor'] : null),
             limit: $limit,

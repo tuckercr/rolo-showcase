@@ -36,6 +36,32 @@ final class TaskModelTest extends DatabaseTestCase
         self::assertSame(2, $this->tasks->countOpen(1));
     }
 
+    public function testCountOpenAgreesWithTheOpenListUnderEveryRule(): void
+    {
+        $trashed = $this->insertContact('Trashed Tom');
+        $kept = $this->insertContact('Kept Kim');
+        $this->insertTask('Colin task', owner: 1, due: '2026-11-27');
+        $this->insertTask('Dana task', owner: 2);
+        $this->insertTask('Shared about Kim', owner: null, contact: $kept);
+        $this->insertTask('Shared about Tom', owner: null, contact: $trashed);
+        $this->markDone($this->insertTask('Done already', owner: 1), '2026-11-19 12:00:00');
+        self::db()->pdo()->prepare('UPDATE contacts SET deleted_at = NOW(), deleted_by = 1 WHERE id = ?')
+            ->execute([$trashed]);
+
+        // Done tasks and a trashed contact's tasks are not counted.
+        self::assertSame(3, $this->tasks->countOpen());
+        self::assertSame(2, $this->tasks->countOpen(1));
+        self::assertSame(2, $this->tasks->countOpen(2));
+
+        foreach ([null, 1, 2] as $lens) {
+            self::assertCount($this->tasks->countOpen($lens), $this->tasks->open($lens));
+        }
+
+        self::db()->pdo()->prepare('UPDATE contacts SET deleted_at = NULL, deleted_by = NULL WHERE id = ?')
+            ->execute([$trashed]);
+        self::assertSame(4, $this->tasks->countOpen(), 'restoring the contact brings its task back');
+    }
+
     public function testOpenIsSoonestFirstWithUndatedLast(): void
     {
         $this->insertTask('No date', due: null);

@@ -10,7 +10,7 @@ use App\Models\TaskModel;
 use App\Models\UserModel;
 use App\Support\Config;
 use App\Support\Database;
-use DateTimeImmutable;
+use App\Support\Dates;
 
 /**
  * The rules for tasks, in one place. Every way a task gets written (the
@@ -42,6 +42,9 @@ final class TaskService
      *
      * owner_id is already a user id or null (shared) by the time it gets
      * here; the words 'me' / 'shared' / an email are OwnerResolver's job.
+     * Like the links below, the owner is only checked when it is being set
+     * or changed: a task whose owner has since lost their sign-in stays
+     * editable, and keeps that owner until someone picks another.
      *
      * A task links to at most one record. Setting a contact on a task that
      * was about an organization (or the reverse) replaces the old link;
@@ -81,13 +84,18 @@ final class TaskService
         $due = trim((string) ($clean['due_date'] ?? ''));
         $clean['due_date'] = $due === '' ? null : $due;
 
-        if ($due !== '' && !self::isValidDate($due)) {
+        if ($due !== '' && !Dates::isValidYmd($due)) {
             $errors['due_date'] = 'The due date must be a real date (YYYY-MM-DD).';
         }
 
         $clean['owner_id'] = self::nullableId($clean['owner_id']);
+        $ownerChanged = $clean['owner_id'] !== self::nullableId($existing['owner_id'] ?? null);
 
-        if ($clean['owner_id'] !== null && !in_array($clean['owner_id'], $this->assignableOwnerIds(), true)) {
+        if (
+            $clean['owner_id'] !== null
+            && $ownerChanged
+            && !in_array($clean['owner_id'], $this->assignableOwnerIds(), true)
+        ) {
             $errors['owner_id'] = 'Pick a valid owner.';
         }
 
@@ -176,6 +184,35 @@ final class TaskService
     }
 
     /**
+     * The owner choices for a task's edit form: everyone assignable, plus
+     * the task's current owner when they no longer are (flagged `retired`).
+     * Without that entry the form has nothing to select for them, shows
+     * "Shared", and saving any other change would quietly reassign the task.
+     *
+     * @param array<string, mixed> $task a TaskModel row (owner_id, owner_name)
+     * @return list<array<string, mixed>> assignableOwners() rows, each with
+     *         a boolean `retired`
+     */
+    public function ownerOptions(array $task): array
+    {
+        $options = array_map(
+            static fn(array $u): array => $u + ['retired' => false],
+            $this->assignableOwners(),
+        );
+        $ownerId = self::nullableId($task['owner_id'] ?? null);
+
+        if ($ownerId !== null && !in_array($ownerId, array_map(intval(...), array_column($options, 'id')), true)) {
+            $options[] = [
+                'id' => $ownerId,
+                'name' => (string) ($task['owner_name'] ?? sprintf('User #%d', $ownerId)),
+                'retired' => true,
+            ];
+        }
+
+        return $options;
+    }
+
+    /**
      * @return list<int>
      */
     private function assignableOwnerIds(): array
@@ -190,12 +227,5 @@ final class TaskService
         }
 
         return is_int($value) || (is_string($value) && ctype_digit($value)) ? (int) $value : -1;
-    }
-
-    private static function isValidDate(string $value): bool
-    {
-        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
-
-        return $parsed !== false && $parsed->format('Y-m-d') === $value;
     }
 }

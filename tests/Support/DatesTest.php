@@ -30,6 +30,31 @@ final class DatesTest extends TestCase
         $this->assertSame(45, Dates::daysBetween('2026-08-29', '2026-10-13', $zone));
     }
 
+    public function testIsValidYmdAcceptsOnlyRealDatesWrittenExactly(): void
+    {
+        foreach (['2026-11-20', '2028-02-29', '2026-01-01', '2026-12-31'] as $good) {
+            $this->assertTrue(Dates::isValidYmd($good), $good);
+        }
+
+        foreach (
+            [
+                '',
+                '2026-02-30',       // PHP would roll this over into March
+                '2027-02-29',       // not a leap year
+                '2026-13-01',
+                '2026-1-5',
+                '11/20/2026',
+                '20-11-2026',
+                'friday',
+                '2026-11-20 10:00',
+                ' 2026-11-20',
+                "2026-11-20\n",
+            ] as $bad
+        ) {
+            $this->assertFalse(Dates::isValidYmd($bad), var_export($bad, true));
+        }
+    }
+
     public function testAcrossDstTransitions(): void
     {
         $zone = new DateTimeZone('America/New_York');

@@ -10,6 +10,10 @@ use App\Support\View;
  *      card model from ProposalService::describe()
  * @var list<array<string, mixed>> $decided
  * @var string|null $applyError
+ * @var string $pendingBreakdown e.g. "82 tag changes, 3 contact updates"
+ * @var int $pendingThroughId the newest pending proposal on this page
+ * @var array{approved: int, skipped: int, failed: list<array<string, mixed>>}|null $bulkResult
+ *      what the last "Approve all" did, shown once
  */
 
 include __DIR__ . '/../layout/header.php';
@@ -36,10 +40,74 @@ $prettyPayload = static function (string $json): string {
     </p>
 <?php endif ?>
 
+<?php if ($bulkResult !== null) : ?>
+    <?php
+    $bulkApproved = (int) $bulkResult['approved'];
+    $bulkFailed = $bulkResult['failed'];
+    $bulkSkipped = (int) $bulkResult['skipped'];
+    ?>
+    <div class="mt-4 max-w-3xl text-sm rounded-lg px-4 py-3 border
+                <?= $bulkFailed === []
+                    ? 'bg-green-50 border-green-200 text-green-900'
+                    : 'bg-amber-50 border-amber-200 text-amber-900' ?>">
+        <p>
+            Approved <?= $bulkApproved ?> proposal<?= $bulkApproved === 1 ? '' : 's' ?>, oldest first.
+            <?php if ($bulkSkipped > 0) : ?>
+                <?= $bulkSkipped ?> had already been decided by someone else and
+                <?= $bulkSkipped === 1 ? 'was' : 'were' ?> left alone.
+            <?php endif ?>
+        </p>
+        <?php if ($bulkFailed !== []) : ?>
+            <p class="mt-1.5">
+                <?= count($bulkFailed) ?> could not be applied and
+                <?= count($bulkFailed) === 1 ? 'was' : 'were' ?> marked rejected:
+            </p>
+            <ul class="mt-1 ml-5 list-disc space-y-0.5">
+                <?php foreach ($bulkFailed as $failure) : ?>
+                    <li>
+                        <?= View::e((string) $failure['summary']) ?>
+                        <span class="text-xs">(<?= View::e((string) $failure['error']) ?>)</span>
+                    </li>
+                <?php endforeach ?>
+            </ul>
+        <?php endif ?>
+    </div>
+<?php endif ?>
+
 <section class="mt-6">
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-brand-inksoft">
-        Pending (<?= count($pending) ?>)
-    </h2>
+    <div class="flex items-center justify-between gap-4 max-w-3xl">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-brand-inksoft">
+            Pending (<?= count($pending) ?>)
+        </h2>
+        <?php if (count($pending) > 1) : ?>
+            <?php
+            $bulkConfirm = sprintf(
+                "Approve all %d pending proposals?\n\n%s.\n\n"
+                    . "They are applied oldest first and recorded under your name. "
+                    . "There is no undo for the whole batch, so reject any you do not want first.",
+                count($pending),
+                $pendingBreakdown,
+            );
+            ?>
+            <form method="post" action="/proposals/approve-all"
+                  data-confirm="<?= View::e($bulkConfirm) ?>"
+                  onsubmit="return confirm(this.dataset.confirm);">
+                <?= Csrf::field() ?>
+                <input type="hidden" name="through_id" value="<?= (int) $pendingThroughId ?>">
+                <button type="submit"
+                        class="text-sm bg-brand-ink hover:bg-brand-red text-white rounded-lg
+                               px-4 py-1.5 whitespace-nowrap">
+                    Approve all <?= count($pending) ?>
+                </button>
+            </form>
+        <?php endif ?>
+    </div>
+    <?php if (count($pending) > 1) : ?>
+        <p class="mt-1 text-xs text-brand-muted max-w-3xl">
+            <?= View::e(ucfirst($pendingBreakdown)) ?>. Approve all works down this list
+            from the oldest to the newest.
+        </p>
+    <?php endif ?>
 
     <?php if ($pending === []) : ?>
         <p class="mt-2 text-sm text-brand-muted">Nothing waiting for review.</p>

@@ -73,8 +73,6 @@ include __DIR__ . '/../layout/header.php';
                                    class="text-brand-red hover:underline">
                                     <?= View::e((string) $org['website']) ?>
                                 </a>
-                            <?php else : ?>
-                                —
                             <?php endif ?>
                         </td>
                         <td class="px-4 py-2 text-brand-inksoft"><?= (int) $org['contact_count'] ?></td>

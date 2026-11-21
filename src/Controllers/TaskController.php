@@ -154,7 +154,9 @@ final class TaskController extends Controller
     {
         $path = is_string($raw) ? $raw : '';
 
-        return preg_match('#^/(?:tasks|contacts/\d+|organizations/\d+)?$#', $path) === 1 ? $path : $default;
+        // \z, not $: $ also matches before a trailing newline, and PHP then
+        // refuses to send the Location header at all (a blank page).
+        return preg_match('#^/(?:tasks|contacts/\d+|organizations/\d+)?\z#', $path) === 1 ? $path : $default;
     }
 
     /**
@@ -211,7 +213,7 @@ final class TaskController extends Controller
             'old' => $old,
             'contactOptions' => (new ContactModel($this->db))->options(),
             'organizations' => (new OrganizationModel($this->db))->allOrdered(),
-            'owners' => (new TaskService($this->config, $this->db))->assignableOwners(),
+            'owners' => (new TaskService($this->config, $this->db))->ownerOptions($task),
             'returnTo' => self::returnTo($_GET['return_to'] ?? $_POST['return_to'] ?? null),
         ]);
     }

@@ -90,7 +90,7 @@ final class ApiSerializer
     }
 
     /**
-     * @param array<string, mixed> $t row from TaskModel (BASE_SELECT shape)
+     * @param array<string, mixed> $t row from TaskModel (select() shape)
      * @return array<string, mixed>
      */
     public static function task(array $t): array

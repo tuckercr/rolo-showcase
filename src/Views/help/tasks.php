@@ -209,10 +209,19 @@ $td = 'px-4 py-2 border-b border-brand-cream2 align-top';
             on a Friday is a week away. Use &ldquo;today&rdquo; for today.
         </p>
         <p class="<?= $p ?>">
-            If the task itself ends in one of those words, wrap it in quotes so Rolo does
-            not mistake it for the due date:
-            <code class="<?= $code ?>">/rolo task "Call the venue about Friday"</code>.
-            A date can still follow the closing quote.
+            Rolo only takes those last words as a due date when the rest still reads as a
+            task. The short days <em>mon</em>, <em>wed</em>, <em>sat</em> and <em>sun</em>
+            are also ordinary words, so they need <em>by</em>, <em>on</em> or <em>due</em>
+            in front (<em>by sat</em>). And when the date is part of the sentence, as in
+            &ldquo;Plan for next week&rdquo; or &ldquo;Call the venue about Friday&rdquo;,
+            the whole line is kept as the task with no due date.
+        </p>
+        <p class="<?= $p ?>">
+            If the task ends in a date word that Rolo would still take as the due date,
+            wrap it in quotes:
+            <code class="<?= $code ?>">/rolo task "Team lunch friday"</code>.
+            A date can still follow the closing quote, as in
+            <code class="<?= $code ?>">/rolo task "Team lunch friday" by wednesday</code>.
         </p>
         <p class="<?= $p ?>">
             Tasks added from Slack are yours. Rolo replies with the task as it was saved,

@@ -15,10 +15,18 @@ use DateTimeImmutable;
  * (the next one after today), "next week", "in N days", "in N weeks", or
  * a YYYY-MM-DD date. Anything else leaves the task undated.
  *
- * A title that happens to end in one of those words ("Call the venue about
- * Friday") would lose it to the due date, so a double-quoted title is
- * taken verbatim, with an optional <when> after the closing quote. That is
- * the same escape hatch /rolo snooze uses for names ending in a number.
+ * Reading the end of a sentence as a date is a guess, so an unquoted line
+ * is read conservatively (see splitTrailingWhen): a weekday abbreviation
+ * that is also an everyday word needs by/on/due in front of it, "on" is
+ * only dropped before a day or a date, and a date that would leave the
+ * title hanging mid-phrase ("Plan for next week") is left in the title.
+ *
+ * A title that would still lose a date word it should keep ("Team lunch
+ * friday") can be double-quoted: a quoted title is taken verbatim, with an
+ * optional <when> after the closing quote. That is the same escape hatch
+ * /rolo snooze uses for names ending in a number. Quotes only count when
+ * what follows them is empty or a <when>; otherwise the line is read as
+ * an ordinary one, so nothing typed is ever dropped.
  *
  * Pure: resolving the contact name against the database is the caller's
  * job. $today is today in APP_TIMEZONE.
@@ -33,6 +41,23 @@ final class TaskQuickAdd
         'fri' => 5, 'friday' => 5,
         'sat' => 6, 'saturday' => 6,
         'sun' => 7, 'sunday' => 7,
+    ];
+
+    /**
+     * Abbreviations that are also everyday words ("where the proofs sat",
+     * "out in the sun"). Unquoted, they are a date only after by/on/due.
+     */
+    private const AMBIGUOUS_WEEKDAYS = ['mon', 'wed', 'sat', 'sun'];
+
+    /**
+     * Words a title cannot end on. When peeling the date off would leave
+     * one of these last ("Plan for", "Call the venue about"), the date
+     * words were part of the sentence, not a due date.
+     */
+    private const DANGLING = [
+        'a', 'an', 'the', 'this', 'next', 'last', 'every',
+        'for', 'to', 'of', 'with', 'about', 'from', 'than',
+        'until', 'till', 'before', 'after', 'and', 'or',
     ];
 
     /**
@@ -52,12 +77,7 @@ final class TaskQuickAdd
         // Slack's desktop client may turn straight quotes into curly ones.
         $text = str_replace(["\u{201C}", "\u{201D}"], '"', $text);
 
-        if (preg_match('/^"(.*?)"\s*(.*)$/u', $text, $m) === 1) {
-            $title = trim($m[1]);
-            $due = self::parseWhen(self::stripConnector(trim($m[2])), $today);
-        } else {
-            [$title, $due] = self::splitTrailingWhen($text, $today);
-        }
+        [$title, $due] = self::splitQuoted($text, $today) ?? self::splitTrailingWhen($text, $today);
 
         if ($title === '') {
             return null;
@@ -71,8 +91,43 @@ final class TaskQuickAdd
     }
 
     /**
+     * A double-quoted title, taken verbatim, with an optional due phrase
+     * after the closing quote. Null when the line is not of that shape,
+     * including when other words follow the quote (`"Q4" report by
+     * friday`): those are part of the task, so the caller reads the whole
+     * line as an unquoted one instead of dropping them.
+     *
+     * @return array{0: string, 1: ?string}|null [title, due date]
+     */
+    private static function splitQuoted(string $text, DateTimeImmutable $today): ?array
+    {
+        if (preg_match('/^"(.*?)"\s*(.*)$/u', $text, $m) !== 1) {
+            return null;
+        }
+
+        $after = trim($m[2]);
+
+        if ($after === '') {
+            return [trim($m[1]), null];
+        }
+
+        $due = self::parseWhen(self::stripConnector($after), $today);
+
+        return $due === null ? null : [trim($m[1]), $due];
+    }
+
+    /**
      * Peel a due phrase off the end of an unquoted line. Tries the longest
      * phrase first ("in 3 days" before "days").
+     *
+     * Deliberately not eager, because a wrong guess silently rewrites what
+     * was typed:
+     *  - mon, wed, sat and sun only count after by/on/due;
+     *  - by and due are always dropped with the date, but "on" only before
+     *    a weekday or a date ("on friday"), so "Turn the reminders on
+     *    tomorrow" keeps its "on";
+     *  - when the title would be left empty or ending on a word that needs
+     *    something after it, the line is kept whole and undated.
      *
      * @return array{0: string, 1: ?string} [title, due date]
      */
@@ -85,16 +140,32 @@ final class TaskQuickAdd
                 continue;
             }
 
-            $due = self::parseWhen(implode(' ', array_slice($words, -$take)), $today);
+            $phrase = strtolower(implode(' ', array_slice($words, -$take)));
+            $due = self::parseWhen($phrase, $today);
 
             if ($due === null) {
                 continue;
             }
 
-            $title = self::stripTrailingConnector(implode(' ', array_slice($words, 0, -$take)));
+            $head = array_slice($words, 0, -$take);
+            $before = strtolower($head[count($head) - 1]);
+            $isDayOrDate = isset(self::WEEKDAYS[$phrase]) || preg_match('/^\d{4}-/', $phrase) === 1;
+            $hasConnector = $before === 'by' || $before === 'due' || ($before === 'on' && $isDayOrDate);
 
-            // "by friday" alone is not a task.
-            return $title === '' ? [$text, null] : [$title, $due];
+            if (!$hasConnector && in_array($phrase, self::AMBIGUOUS_WEEKDAYS, true)) {
+                break;
+            }
+
+            if ($hasConnector) {
+                array_pop($head);
+            }
+
+            // "by friday" alone is not a task, and "Plan for" is not a title.
+            if ($head === [] || in_array(strtolower($head[count($head) - 1]), self::DANGLING, true)) {
+                break;
+            }
+
+            return [implode(' ', $head), $due];
         }
 
         return [$text, null];
@@ -138,9 +209,7 @@ final class TaskQuickAdd
         }
 
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $phrase) === 1) {
-            $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $phrase);
-
-            return $parsed !== false && $parsed->format('Y-m-d') === $phrase ? $phrase : null;
+            return Dates::isValidYmd($phrase) ? $phrase : null;
         }
 
         return null;
@@ -150,11 +219,5 @@ final class TaskQuickAdd
     private static function stripConnector(string $phrase): string
     {
         return (string) preg_replace('/^(?:by|on|due)\s+/i', '', $phrase);
-    }
-
-    /** "Send the deck by" -> "Send the deck". */
-    private static function stripTrailingConnector(string $title): string
-    {
-        return trim((string) preg_replace('/\s+(?:by|on|due)$/i', '', ' ' . $title));
     }
 }

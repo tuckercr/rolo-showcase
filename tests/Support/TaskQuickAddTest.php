@@ -54,6 +54,20 @@ final class TaskQuickAddTest extends TestCase
             'by is dropped' => ['Send the deck by friday', 'Send the deck', '2026-11-27'],
             'on is dropped' => ['Send the deck on 2026-12-01', 'Send the deck', '2026-12-01'],
             'due is dropped' => ['Send the deck due tomorrow', 'Send the deck', '2026-11-21'],
+            'ambiguous short weekday after by' => ['Send the deck by sat', 'Send the deck', '2026-11-21'],
+            'ambiguous short weekday after on' => ['Send the deck on Wed', 'Send the deck', '2026-11-25'],
+            'ambiguous short weekday after due' => ['Send the deck due mon', 'Send the deck', '2026-11-23'],
+            'on stays when it is not a date word' => [
+                'Turn the reminders on tomorrow',
+                'Turn the reminders on',
+                '2026-11-21',
+            ],
+            'on stays before a longer phrase' => [
+                'Switch the heating on in 2 days',
+                'Switch the heating on',
+                '2026-11-22',
+            ],
+            'a phrasal verb keeps its date' => ['Hand the report in friday', 'Hand the report in', '2026-11-27'],
         ];
     }
 
@@ -74,6 +88,34 @@ final class TaskQuickAddTest extends TestCase
         self::assertNull($parsed['due_date']);
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function everydayWords(): array
+    {
+        return [
+            'sat is a verb' => ['Find out where the proofs sat'],
+            'sun is a noun' => ['Move the plants out of the sun'],
+            'wed is a verb' => ['Send a card to the couple who wed'],
+            'mon without a connector' => ['Ask about the rota for mon'],
+            'for needs its object' => ['Plan for next week'],
+            'about needs its object' => ['Call the venue about Friday'],
+            'the needs its noun' => ['Write up the notes from the 2026-12-01'],
+            'before is not a due word' => ['Send the deck before friday'],
+            'this needs its day' => ['Send the deck this friday'],
+            'a connector cannot rescue a dangling title' => ['Send it to the by friday'],
+        ];
+    }
+
+    #[DataProvider('everydayWords')]
+    public function testADateWordThatBelongsToTheSentenceStaysInTheTitle(string $text): void
+    {
+        $parsed = TaskQuickAdd::parse($text, $this->today());
+
+        self::assertSame($text, $parsed['title']);
+        self::assertNull($parsed['due_date']);
+    }
+
     public function testAnImpossibleDateStaysInTheTitle(): void
     {
         $parsed = TaskQuickAdd::parse('File the report 2026-02-30', $this->today());
@@ -91,6 +133,34 @@ final class TaskQuickAddTest extends TestCase
         self::assertSame(
             ['title' => 'Call the venue about Friday', 'due_date' => '2026-11-23', 'contact_query' => null],
             TaskQuickAdd::parse('"Call the venue about Friday" by monday', $this->today()),
+        );
+    }
+
+    public function testAnyDuePhraseWorksAfterAClosingQuote(): void
+    {
+        // The quotes already say where the title ends, so the short
+        // weekdays need no connector here.
+        $parsed = TaskQuickAdd::parse('"Call the venue" sat', $this->today());
+
+        self::assertSame('Call the venue', $parsed['title']);
+        self::assertSame('2026-11-21', $parsed['due_date']);
+    }
+
+    public function testWordsAfterAClosingQuoteAreNeverDropped(): void
+    {
+        // Not a quoted title: the quotes are part of the sentence.
+        self::assertSame(
+            ['title' => '"Q4" report', 'due_date' => '2026-11-27', 'contact_query' => null],
+            TaskQuickAdd::parse('"Q4" report by friday', $this->today()),
+        );
+        self::assertSame(
+            ['title' => '"Launch" checklist for Northfield Labs', 'due_date' => null, 'contact_query' => null],
+            TaskQuickAdd::parse('"Launch" checklist for Northfield Labs', $this->today()),
+        );
+        // A mistyped date is kept in the title rather than thrown away.
+        self::assertSame(
+            ['title' => '"Call the venue" by fryday', 'due_date' => null, 'contact_query' => null],
+            TaskQuickAdd::parse('"Call the venue" by fryday', $this->today()),
         );
     }
 

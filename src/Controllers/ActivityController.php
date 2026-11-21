@@ -10,6 +10,7 @@ use App\Models\ContactModel;
 use App\Models\ReminderRuleModel;
 use App\Services\AttachmentService;
 use App\Services\ReminderService;
+use App\Support\Dates;
 use App\Support\View;
 use DateTimeImmutable;
 use InvalidArgumentException;
@@ -48,8 +49,8 @@ final class ActivityController extends Controller
 
         if (
             !array_key_exists($activityType, ActivityModel::TYPES)
-            || !$this->isValidDate($activityDate)
-            || ($followUpDate !== '' && !$this->isValidDate($followUpDate))
+            || !Dates::isValidYmd($activityDate)
+            || ($followUpDate !== '' && !Dates::isValidYmd($followUpDate))
         ) {
             return $this->redirect('/contacts/' . $contactId . '?error=activity');
         }
@@ -169,8 +170,8 @@ final class ActivityController extends Controller
 
         if (
             !array_key_exists($activityType, ActivityModel::TYPES)
-            || !$this->isValidDate($activityDate)
-            || ($followUpDate !== '' && !$this->isValidDate($followUpDate))
+            || !Dates::isValidYmd($activityDate)
+            || ($followUpDate !== '' && !Dates::isValidYmd($followUpDate))
         ) {
             return $this->redirect('/activities/' . (int) $activity['id'] . '/edit');
         }
@@ -346,12 +347,5 @@ final class ActivityController extends Controller
         }
 
         return mb_substr($note, 0, 255);
-    }
-
-    private function isValidDate(string $value): bool
-    {
-        $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $value);
-
-        return $parsed !== false && $parsed->format('Y-m-d') === $value;
     }
 }

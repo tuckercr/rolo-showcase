@@ -116,14 +116,14 @@ include __DIR__ . '/../layout/header.php';
                                 </a>
                             </td>
                             <td class="px-4 py-2 text-brand-inksoft">
-                                <?= View::e((string) ($contact['title'] ?? '—')) ?>
+                                <?= View::e((string) ($contact['title'] ?? '')) ?>
                             </td>
                             <td class="px-4 py-2 text-brand-inksoft">
                                 <?= View::e((string) $contact['relationship_status']) ?>
                             </td>
                             <?php $dateClass = $isOverdue ? 'text-brand-red font-medium' : 'text-brand-inksoft'; ?>
                             <td class="px-4 py-2 <?= $dateClass ?>">
-                                <?= View::e($next === '' ? '—' : $next) ?>
+                                <?= View::e($next === '' ? 'No reminder' : $next) ?>
                             </td>
                         </tr>
                     <?php endforeach ?>

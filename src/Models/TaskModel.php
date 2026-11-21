@@ -12,8 +12,8 @@ use App\Support\OwnerLens;
  * separate from the follow-up engine: nothing in here reads or writes a
  * contact's touch dates.
  *
- * Every read goes through select(), which is the single place the two
- * standing rules are applied:
+ * Every read, rows (select()) and the open count alike, is built from
+ * source(), which is the single place the two standing rules are applied:
  *  - a task whose contact is in the trash is invisible, and comes back
  *    when the contact is restored;
  *  - owner scoping is built by OwnerLens, the same definition contacts
@@ -22,15 +22,18 @@ use App\Support\OwnerLens;
  */
 final class TaskModel
 {
-    private const BASE_SELECT = '
-        SELECT t.*,
-               c.name AS contact_name,
-               COALESCE(co.id, o.id) AS linked_organization_id,
-               COALESCE(co.name, o.name) AS organization_name,
-               ou.name AS owner_name,
-               du.name AS completed_by_name,
-               cu.name AS created_by_name,
-               uu.name AS updated_by_name
+    private const COLUMNS = '
+        t.*,
+        c.name AS contact_name,
+        COALESCE(co.id, o.id) AS linked_organization_id,
+        COALESCE(co.name, o.name) AS organization_name,
+        ou.name AS owner_name,
+        du.name AS completed_by_name,
+        cu.name AS created_by_name,
+        uu.name AS updated_by_name
+    ';
+
+    private const FROM = '
         FROM tasks t
         LEFT JOIN contacts c ON t.contact_id = c.id
         LEFT JOIN organizations co ON c.organization_id = co.id
@@ -232,11 +235,24 @@ final class TaskModel
 
     /**
      * How many open tasks the lens holds in total (the "and N more later"
-     * line under a shortened list).
+     * line under a shortened list). Counted by the database over the same
+     * source() as open(), so the two always agree, rather than by fetching
+     * and hydrating every open task just to count the rows.
      */
     public function countOpen(?int $forUserId = null): int
     {
-        return count($this->open($forUserId));
+        $where = ['t.completed_at IS NULL'];
+        $params = [];
+
+        if ($forUserId !== null) {
+            $where[] = OwnerLens::mine('t.owner_id', 'for_user');
+            $params['for_user'] = $forUserId;
+        }
+
+        $stmt = $this->db->pdo()->prepare('SELECT COUNT(*)' . self::source($where));
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**
@@ -317,7 +333,7 @@ final class TaskModel
     }
 
     /**
-     * The one read path. $where fragments are hardcoded by the methods
+     * The one row read path. $where fragments are hardcoded by the methods
      * above; values only ever travel as bound parameters.
      *
      * @param list<string> $where
@@ -326,10 +342,8 @@ final class TaskModel
      */
     private function select(array $where, array $params, string $order = 't.id', ?int $limit = null): array
     {
-        $where[] = self::VISIBLE;
-
-        $sql = self::BASE_SELECT
-            . ' WHERE ' . implode(' AND ', $where)
+        $sql = 'SELECT ' . self::COLUMNS
+            . self::source($where)
             . ' ORDER BY ' . $order
             . ($limit === null ? '' : ' LIMIT ' . max(1, $limit));
 
@@ -337,6 +351,19 @@ final class TaskModel
         $stmt->execute($params);
 
         return $stmt->fetchAll();
+    }
+
+    /**
+     * FROM and WHERE for every task read: the joins, the caller's
+     * conditions, and the trashed-contact rule appended to all of them.
+     *
+     * @param list<string> $where
+     */
+    private static function source(array $where): string
+    {
+        $where[] = self::VISIBLE;
+
+        return self::FROM . ' WHERE ' . implode(' AND ', $where);
     }
 
     /**
